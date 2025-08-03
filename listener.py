@@ -17,7 +17,9 @@ def start_listener(verbose=False):
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)  # ✅ Enables receiving broadcasts
+
+        
     # Try to bind to the port, with retry logic
     max_retries = 5
     for retry in range(max_retries):
@@ -51,20 +53,23 @@ def start_listener(verbose=False):
                     print(f"⚠️  Receive error: {e}")
                 continue
 
+            msg_type = message.strip().splitlines()[0].strip()
+
             # Parse message type
-            if message.startswith("TYPE: PING"):
+            if "TYPE: PING" in msg_type:
                 handle_ping(message, addr, verbose)
-            elif message.startswith("TYPE: PROFILE"):
+            elif "TYPE: PROFILE" in msg_type:
                 handle_profile(message, addr, verbose)
-            elif message.startswith("TYPE: DM"):
+            elif "TYPE: DM" in msg_type:
                 handle_dm(message, addr, verbose)
-            elif message.startswith("TYPE: POST"):
+            elif "TYPE: POST" in msg_type:
                 handle_post(message, addr, verbose)
-            elif message.startswith("TYPE: ACK"):
+            elif "TYPE: ACK" in msg_type:
                 if verbose:
                     print(f"✅ ACK received from {addr}")
             elif verbose:
                 print(f"< RECV UNKNOWN from {addr}\n{message}\n{'-'*40}")
+
 
     except KeyboardInterrupt:
         print("\n[INFO] Listener stopped.")
@@ -73,32 +78,38 @@ def start_listener(verbose=False):
 
 def handle_ping(message, addr, verbose):
     global peer_table, user_ip_map
-    
+
     user_id = None
-    for line in message.strip().split("\n"):
+    for line in message.strip().splitlines():
+        line = line.strip()
+        if verbose:
+            print(f"[DEBUG] PING line: {line}")
         if line.startswith("USER_ID:"):
             user_id = line.split(":", 1)[1].strip()
             break
-    
+
     if user_id:
         peer_table[user_id] = time.time()
         user_ip_map[user_id] = addr[0]
         if verbose:
-            print(f"< PING from {user_id} at {addr[0]}")
+            print(f"📡 PING from {user_id} at {addr[0]}")
+            print(f"[DEBUG] peer_table now: {list(peer_table.keys())}")
 
 def handle_profile(message, addr, verbose):
     global peer_table, profile_data, user_ip_map
-    
+
     user_id, display_name, status = None, "Unknown", "No status"
-    for line in message.strip().split("\n"):
+    for line in message.strip().splitlines():
         line = line.strip()
+        if verbose:
+            print(f"[DEBUG] PROFILE line: {line}")
         if line.startswith("USER_ID:"):
             user_id = line.split(":", 1)[1].strip()
         elif line.startswith("DISPLAY_NAME:"):
             display_name = line.split(":", 1)[1].strip()
         elif line.startswith("STATUS:"):
             status = line.split(":", 1)[1].strip()
-    
+
     if user_id:
         profile_data[user_id] = {
             "display_name": display_name,
@@ -107,7 +118,9 @@ def handle_profile(message, addr, verbose):
         peer_table[user_id] = time.time()
         user_ip_map[user_id] = addr[0]
         if verbose:
-            print(f"< PROFILE from {user_id} ({display_name}) at {addr[0]}")
+            print(f"👤 PROFILE from {user_id} ({display_name}) at {addr[0]}")
+            print(f"[DEBUG] profile_data now: {list(profile_data.keys())}")
+
 
 def handle_dm(message, addr, verbose):
     global dm_history, active_dm_user, user_ip_map, profile_data
