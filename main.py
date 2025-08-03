@@ -48,11 +48,14 @@ def register_user():
         "ip": ip
     }
 
-def _send_unicast(message, user_id):
+def _send_unicast(message, user_id, verbose=False):
+    """Send a unicast message to a specific user"""
     ip = user_ip_map.get(user_id, "127.0.0.1")
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         sock.sendto(message.encode("utf-8"), (ip, 50999))
+        if verbose:
+            print(f"[DEBUG] Sent message to {user_id} at {ip}")
         return True
     except Exception as e:
         print(f"❌ Failed to send to {user_id} ({ip}): {e}")
@@ -295,6 +298,17 @@ def main():
                 else:
                     print("❌ Invalid option.\n")
 
+
+
+
+
+
+
+
+
+
+
+
         elif choice == "3":
             now = time.time()
             peers = [uid for uid, last_seen in peer_table.items() if now - last_seen < 60 and uid != user["user_id"]]
@@ -344,6 +358,7 @@ def main():
                     print(f"\nDEBUG INFO:")
                     print(f"Target UID: {target_uid}")
                     print(f"Your UID: {user['user_id']}")
+                    print(f"Target IP: {user_ip_map.get(target_uid, 'Not found')}")
                     print(f"DM History keys: {list(dm_history.keys())}")
                     print(f"Profile data keys: {list(profile_data.keys())}")
                     print(f"Active DM user: {active_dm_user}")
@@ -351,6 +366,8 @@ def main():
                         print(f"Messages with {target_uid}: {len(dm_history[target_uid])}")
                         for i, msg_line in enumerate(dm_history[target_uid]):
                             print(f"  {i+1}: {msg_line}")
+                    else:
+                        print(f"No message history with {target_uid}")
                     print()
                     continue
                 
@@ -371,7 +388,10 @@ def main():
                     f"TOKEN: {token}\n\n"
                 )
 
-                success = _send_unicast(dm_msg, target_uid)
+                if user["verbose"]:
+                    print(f"[DEBUG] Sending DM to {target_uid}: {msg}")
+
+                success = _send_unicast(dm_msg, target_uid, user["verbose"])
                 if success:
                     # Add your own message to history
                     add_to_dm_history(target_uid, msg, is_outgoing=True, user_display_name=user["display_name"])
@@ -381,6 +401,25 @@ def main():
                     
                 else:
                     print(f"❌ Failed to send message to {target_display}")
+                    # Check if we have the target's IP
+                    if target_uid not in user_ip_map:
+                        print(f"   No IP address known for {target_uid}. Try waiting for them to send a ping or profile update.")
+                    else:
+                        print(f"   Target IP: {user_ip_map[target_uid]}")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         elif choice == "7":
             print(f"\nUsername: {user['username']}")
