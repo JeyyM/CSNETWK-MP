@@ -6,65 +6,56 @@ import os
 import uuid
 
 from shared_state import dm_history, active_dm_user
-
-from listener import start_listener, peer_table, profile_data
+from listener import start_listener, peer_table, profile_data, user_ip_map
 from ping import send_ping
-
 
 following = set()
 
 def clear_console():
     os.system("cls" if os.name == "nt" else "clear")
 
-def get_fake_ip():
-    """Simulate a fake IP for local multi-user testing."""
-    return f"192.168.1.{random.randint(100, 200)}"
-
 def broadcast_profile(user):
-    """Broadcast user profile to all peers"""
     profile_msg = (
         f"TYPE: PROFILE\n"
         f"USER_ID: {user['user_id']}\n"
         f"DISPLAY_NAME: {user['display_name']}\n"
         f"STATUS: {user['status']}\n\n"
     )
-    
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     sock.sendto(profile_msg.encode("utf-8"), ("<broadcast>", 50999))
     sock.close()
 
 def register_user():
-    print("==== Welcome to LSNP ====\n")
+    print("==== Welcome to LSNP ====")
     verbose_input = input("Enable Verbose Mode? (y/n): ").lower()
     verbose = verbose_input == "y"
 
-    username = input("\nEnter your username: ").strip()
+    username = input("Enter your username: ").strip()
     display_name = input("Enter your display name: ").strip()
     status = input("Enter your status: ").strip()
 
-    fake_ip = get_fake_ip()
-    user_id = f"{username}@{fake_ip}"
+    ip = "127.0.0.1"
+    user_id = f"{username}@{ip}"
 
     print("\n✅ Profile created!\n")
-
     return {
         "verbose": verbose,
         "username": username,
         "display_name": display_name,
         "status": status,
         "user_id": user_id,
-        "ip": fake_ip
+        "ip": ip
     }
 
 def _send_unicast(message, user_id):
-    ip = user_id.split("@")[1]
+    ip = user_ip_map.get(user_id, "127.0.0.1")
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         sock.sendto(message.encode("utf-8"), (ip, 50999))
         return True
     except Exception as e:
-        print(f"❌ Failed to send to {user_id}: {e}")
+        print(f"❌ Failed to send to {user_id} ({ip}): {e}")
         return False
     finally:
         sock.close()
