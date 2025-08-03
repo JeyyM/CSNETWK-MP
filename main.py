@@ -256,7 +256,8 @@ def main():
 
                     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-                    sock.sendto(post_msg.encode("utf-8"), ("<broadcast>", 50999))
+                    broadcast_ip = get_broadcast_ip()
+                    sock.sendto(post_msg.encode("utf-8"), (broadcast_ip, 50999))
                     sock.close()
 
                     print("✅ Post broadcasted. Your message is now visible to followers.\n")
