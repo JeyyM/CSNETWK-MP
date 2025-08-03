@@ -5,6 +5,8 @@ import random
 import os
 import uuid
 
+from shared_state import dm_history, active_dm_user
+
 from listener import start_listener, peer_table, profile_data
 from ping import send_ping
 
@@ -17,6 +19,20 @@ def clear_console():
 def get_fake_ip():
     """Simulate a fake IP for local multi-user testing."""
     return f"192.168.1.{random.randint(100, 200)}"
+
+def broadcast_profile(user):
+    """Broadcast user profile to all peers"""
+    profile_msg = (
+        f"TYPE: PROFILE\n"
+        f"USER_ID: {user['user_id']}\n"
+        f"DISPLAY_NAME: {user['display_name']}\n"
+        f"STATUS: {user['status']}\n\n"
+    )
+    
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    sock.sendto(profile_msg.encode("utf-8"), ("<broadcast>", 50999))
+    sock.close()
 
 def register_user():
     print("==== Welcome to LSNP ====\n")
@@ -44,8 +60,14 @@ def register_user():
 def _send_unicast(message, user_id):
     ip = user_id.split("@")[1]
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.sendto(message.encode("utf-8"), (ip, 50999))
-    sock.close()
+    try:
+        sock.sendto(message.encode("utf-8"), (ip, 50999))
+        return True
+    except Exception as e:
+        print(f"❌ Failed to send to {user_id}: {e}")
+        return False
+    finally:
+        sock.close()
 
 def show_menu():
     print("==== LSNP CLI Menu ====\n")
@@ -59,7 +81,38 @@ def show_menu():
     print("[7] My Profile")
     print("[8] Exit\n")
 
+def display_dm_history(target_uid, user_display_name):
+    """Display the full DM history for a conversation"""
+    history = dm_history.get(target_uid, [])
+    if history:
+        print("📜 Chat History:")
+        for line in history:
+            print(line)
+        print()
+    else:
+        print("📭 No chat history with this user yet.\n")
+
+def show_recent_messages(target_uid, count=5):
+    """Show the last N messages in the conversation"""
+    history = dm_history.get(target_uid, [])
+    if history:
+        recent = history[-count:] if len(history) > count else history
+        print("\n" + "─" * 40)
+        for msg in recent:
+            print(msg)
+        print("─" * 40)
+
+def add_to_dm_history(user_id, message, is_outgoing=False, user_display_name="You"):
+    """Add a message to DM history"""
+    global dm_history
+    if user_id not in dm_history:
+        dm_history[user_id] = []
+    
+    if is_outgoing:
+        dm_history[user_id].append(f"{user_display_name}: {message}")
+
 def main():
+    global active_dm_user
     user = register_user()
 
     # Start the UDP listener thread
@@ -70,13 +123,26 @@ def main():
     )
     listener_thread.start()
 
+    # Broadcast profile immediately
+    time.sleep(1)  # Give listener time to start
+    broadcast_profile(user)
+
     # Start the periodic PING broadcaster thread
     ping_thread = threading.Thread(
         target=send_ping,
-        kwargs={"user_id": user["user_id"], "interval": 10, "verbose": user["verbose"]},  # use 300 in prod
+        kwargs={"user_id": user["user_id"], "interval": 10, "verbose": user["verbose"]},
         daemon=True
     )
     ping_thread.start()
+
+    # Periodic profile broadcaster thread
+    def periodic_profile_broadcast():
+        while True:
+            time.sleep(30)  # Broadcast profile every 30 seconds
+            broadcast_profile(user)
+
+    profile_thread = threading.Thread(target=periodic_profile_broadcast, daemon=True)
+    profile_thread.start()
 
     # CLI interaction loop
     while True:
@@ -87,13 +153,12 @@ def main():
             user["verbose"] = not user["verbose"]
             print(f"Verbose Mode {'enabled' if user['verbose'] else 'disabled'}.\n")
 
-
         elif choice == "1":
             while True:
                 now = time.time()
                 peers = [
                     uid for uid, last_seen in peer_table.items()
-                    if now - last_seen < 30 and uid != user["user_id"]
+                    if now - last_seen < 60 and uid != user["user_id"]
                 ]
 
                 if not peers:
@@ -160,7 +225,7 @@ def main():
                     print(f"🚫 Unfollowed {target_uid}\n")
 
         elif choice == "2":
-            from listener import post_feed  # Get latest post data each time
+            from listener import post_feed
 
             while True:
                 sub_choice = input("\n[A] Add New Post\n[V] View Posts\n[B] Back to Main Menu\nSelect: ").strip().upper()
@@ -185,7 +250,6 @@ def main():
                         f"TOKEN: {token}\n\n"
                     )
 
-                    # Send via broadcast
                     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
                     sock.sendto(post_msg.encode("utf-8"), ("<broadcast>", 50999))
@@ -240,19 +304,104 @@ def main():
                 else:
                     print("❌ Invalid option.\n")
 
+        elif choice == "3":
+            now = time.time()
+            peers = [uid for uid, last_seen in peer_table.items() if now - last_seen < 60 and uid != user["user_id"]]
 
+            if not peers:
+                print("No peers available for DM.\n")
+                continue
 
+            print("\n==== Active Peers for DM ====")
+            for idx, uid in enumerate(peers, 1):
+                display = profile_data.get(uid, {}).get("display_name", uid.split("@")[0])
+                message_count = len(dm_history.get(uid, []))
+                message_indicator = f" ({message_count} messages)" if message_count > 0 else ""
+                print(f"[{idx}] {display} ({uid}){message_indicator}")
+            print("=============================\n")
 
+            selected = input("Select peer number to DM: ").strip()
+            try:
+                target_uid = peers[int(selected) - 1]
+            except (IndexError, ValueError):
+                print("❌ Invalid selection.\n")
+                continue
 
+            target_display = profile_data.get(target_uid, {}).get("display_name", target_uid.split("@")[0])
+            print(f"\n💬 Entering DM chat with {target_display}. Type `/exit` to leave, `/refresh` to see new messages.\n")
 
+            # Set active DM user for the listener to know
+            active_dm_user = target_uid
 
+            # Display existing chat history
+            display_dm_history(target_uid, user["display_name"])
 
+            while True:
+                msg = input(f"[You → {target_display}]: ").strip()
+                
+                if msg == "/exit":
+                    print("👋 Exiting DM chat.\n")
+                    active_dm_user = None
+                    break
+                
+                if msg == "/refresh":
+                    print("\n🔄 Refreshing chat...\n")
+                    display_dm_history(target_uid, user["display_name"])
+                    continue
+                
+                if msg == "/debug":
+                    print(f"\nDEBUG INFO:")
+                    print(f"Target UID: {target_uid}")
+                    print(f"Your UID: {user['user_id']}")
+                    print(f"DM History keys: {list(dm_history.keys())}")
+                    print(f"Profile data keys: {list(profile_data.keys())}")
+                    print(f"Active DM user: {active_dm_user}")
+                    if target_uid in dm_history:
+                        print(f"Messages with {target_uid}: {len(dm_history[target_uid])}")
+                        for i, msg_line in enumerate(dm_history[target_uid]):
+                            print(f"  {i+1}: {msg_line}")
+                    print()
+                    continue
+                
+                if not msg:
+                    continue
+
+                message_id = uuid.uuid4().hex[:8]
+                timestamp = int(time.time())
+                token = f"{user['user_id']}|{timestamp+300}|chat"
+
+                dm_msg = (
+                    f"TYPE: DM\n"
+                    f"FROM: {user['user_id']}\n"
+                    f"TO: {target_uid}\n"
+                    f"CONTENT: {msg}\n"
+                    f"TIMESTAMP: {timestamp}\n"
+                    f"MESSAGE_ID: {message_id}\n"
+                    f"TOKEN: {token}\n\n"
+                )
+
+                success = _send_unicast(dm_msg, target_uid)
+                if success:
+                    # Add your own message to history
+                    add_to_dm_history(target_uid, msg, is_outgoing=True, user_display_name=user["display_name"])
+                    
+                    # Show the recent conversation including your sent message
+                    show_recent_messages(target_uid, count=5)
+                    
+                else:
+                    print(f"❌ Failed to send message to {target_display}")
 
         elif choice == "7":
             print(f"\nUsername: {user['username']}")
             print(f"Display Name: {user['display_name']}")
             print(f"Status: {user['status']}")
-            print(f"User ID: {user['user_id']}\n")
+            print(f"User ID: {user['user_id']}")
+            print(f"Profile data stored: {len(profile_data)} peers")
+            print(f"DM conversations: {len(dm_history)}")
+            for uid, msgs in dm_history.items():
+                display = profile_data.get(uid, {}).get("display_name", uid.split("@")[0])
+                print(f"  - {display} ({uid}): {len(msgs)} messages")
+            print()
 
         elif choice == "8":
             print("\nExiting LSNP...\n")
