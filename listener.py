@@ -2,6 +2,7 @@
 import socket
 import time
 from shared_state import dm_history, active_dm_user
+import random
 
 PORT = 50999
 BUFFER_SIZE = 65535

@@ -7,7 +7,7 @@ import uuid
 
 from shared_state import dm_history, active_dm_user
 from listener import start_listener, peer_table, profile_data, user_ip_map
-from ping import send_ping
+from ping import send_ping, get_broadcast_ip
 
 following = set()
 
@@ -23,7 +23,9 @@ def broadcast_profile(user):
     )
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    sock.sendto(profile_msg.encode("utf-8"), ("<broadcast>", 50999))
+        
+    broadcast_ip = get_broadcast_ip()
+    sock.sendto(profile_msg.encode("utf-8"), (broadcast_ip, 50999))
     sock.close()
 
 def register_user():
