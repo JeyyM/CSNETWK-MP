@@ -35,10 +35,18 @@ def register_user():
     display_name = input("Enter your display name: ").strip()
     status = input("Enter your status: ").strip()
 
-    ip = "127.0.0.1"
+    # ✅ Automatically detect real LAN IP (not 127.0.0.1)
+    try:
+        temp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        temp_sock.connect(("8.8.8.8", 80))  # Doesn't send data, just used to get IP
+        ip = temp_sock.getsockname()[0]
+        temp_sock.close()
+    except:
+        ip = "127.0.0.1"  # fallback if IP can't be determined
+
     user_id = f"{username}@{ip}"
 
-    print("\n✅ Profile created!\n")
+    print(f"\n✅ Profile created! Your User ID: {user_id}\n")
     return {
         "verbose": verbose,
         "username": username,
