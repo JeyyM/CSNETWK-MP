@@ -1,0 +1,10 @@
+Firewall on my windows laptop was disabled for post 50999
+- Windows Defender Firewall
+- Advanced Settings
+- Inbound rules
+- Rule Type: Port
+- Protocol: UDP
+- Specific local port: 50999
+- Action: Allow the connection
+- Profile: Private and Public
+- Name: LSNP UDP 50999
