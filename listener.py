@@ -3,6 +3,8 @@ import socket
 import time
 import random
 
+from collections import deque
+
 from shared_state import dm_history, active_dm_user
 
 # NEW: use the protocol helpers so we parse/build consistently
@@ -88,6 +90,26 @@ def start_listener(verbose=False):
         print("\n[INFO] Listener stopped.")
     finally:
         sock.close()
+
+# ---- duplicate suppression for MESSAGE_IDs ----
+from collections import deque
+
+_SEEN_IDS: set[str] = set()
+_SEEN_ORDER: deque[str] = deque(maxlen=4096)  # enough for a busy session
+
+def _seen_before(message_id: str | None) -> bool:
+    """Return True if we've already processed this MESSAGE_ID; otherwise record it."""
+    if not message_id:
+        return False
+    if message_id in _SEEN_IDS:
+        return True
+    _SEEN_IDS.add(message_id)
+    _SEEN_ORDER.append(message_id)
+    # keep the set in sync with the bounded deque
+    while len(_SEEN_IDS) > _SEEN_ORDER.maxlen:
+        old = _SEEN_ORDER.popleft()
+        _SEEN_IDS.discard(old)
+    return False
 
 def handle_ping(msg, addr, verbose):
     global peer_table, user_ip_map, profile_data
@@ -204,12 +226,20 @@ def send_ack(message_id, addr, verbose):
             print(f"❌ Failed to send ACK: {e}")
 
 def handle_post(msg, addr, verbose):
+    """Process TYPE: POST (with duplicate suppression by MESSAGE_ID)"""
     global post_feed, profile_data
 
     user_id = msg.get("USER_ID")
     content = msg.get("CONTENT", "")
     ttl_raw = msg.get("TTL")
-    ts_raw = msg.get("TIMESTAMP")  # <-- read sender's timestamp
+    ts_raw = msg.get("TIMESTAMP")
+    message_id = msg.get("MESSAGE_ID")
+
+    # Duplicate suppression: many stacks (esp. Windows) will receive both broadcasts you sent
+    if _seen_before(message_id):
+        if verbose:
+            print(f"DROP! Duplicate POST (MESSAGE_ID={message_id}) from {addr}")
+        return
 
     if not user_id or not content:
         if verbose:
@@ -231,13 +261,15 @@ def handle_post(msg, addr, verbose):
         "user_id": user_id,
         "display_name": display_name,
         "content": content,
-        "timestamp": timestamp,   # <-- store sender's timestamp
+        "timestamp": timestamp,
         "ttl": ttl,
-        "likes": set()
+        "likes": set(),
+        "message_id": message_id,
     }
     post_feed.append(post)
     if verbose:
         print(f"< POST from {user_id}: {content}")
+
 
 def handle_like(msg, addr, verbose):
     """
