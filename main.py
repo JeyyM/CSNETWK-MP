@@ -599,6 +599,7 @@ def main():
                 print(f"\n== {disp} ==")
 
                 # Case 1: there is an invite from this user
+                # inside the Tic Tac Toe menu, when there is an invite from target_uid:
                 invite_key = next((k for k in ttt_invites.keys() if k[0] == target_uid), None)
                 if invite_key:
                     inv = ttt_invites[invite_key]
@@ -607,27 +608,58 @@ def main():
                     print(f"Invite detected (game {gid}). You are '{my_symbol}'.")
                     move = input("Enter your first move [0-8] to ACCEPT, or 'n' to reject: ").strip().lower()
                     if move == "n":
+                        # send a FORFEIT result to the inviter so they clean up
+                        ts_now = int(time.time())
+                        msg_id = uuid.uuid4().hex[:8]
+                        result_fields = {
+                            "TYPE": "TICTACTOE_RESULT",
+                            "FROM": user["user_id"],
+                            "TO": target_uid,
+                            "GAMEID": gid,
+                            "MESSAGE_ID": msg_id,
+                            "RESULT": "FORFEIT",
+                            "SYMBOL": my_symbol,
+                            "TIMESTAMP": ts_now,
+                            "TOKEN": f"{user['user_id']}|{ts_now+3600}|game",
+                        }
+                        result_msg = build_message(result_fields)
+                        _send_unicast(result_msg, target_uid, user["verbose"])
+
+                        # local cleanup
                         del ttt_invites[invite_key]
+                        if gid in ttt_games:
+                            # optionally drop game shell on reject
+                            del ttt_games[gid]
                         print("Invite rejected.")
                         continue
+
                     try:
                         pos = int(move)
                     except ValueError:
                         print("Invalid input."); continue
-                    # ensure game exists locally
+
+                    # ensure game exists locally (should already from handler)
                     if gid not in ttt_games:
-                        ttt_games[gid] = {"board":[""]*9,"players":{inviter_symbol: target_uid, my_symbol: user["user_id"]},
-                                        "next_symbol":"X","turn":1,"moves_seen":set()}
+                        ttt_games[gid] = {
+                            "board":[""]*9,
+                            "players":{inviter_symbol: target_uid, my_symbol: user["user_id"]},
+                            "next_symbol":"X","turn":1,"moves_seen":set()
+                        }
+
                     ts = int(time.time())
                     token_game = f"{user['user_id']}|{ts+3600}|game"
                     ok = send_move(user["user_id"], target_uid, gid, pos, token_game, verbose=user["verbose"])
                     if ok:
                         print(f"Accepted invite. Played {pos}.")
                         del ttt_invites[invite_key]
-                        render_board(ttt_games[gid]["board"])
+                        # print board after our move
+                        b = ttt_games[gid]["board"]
+                        def c(i): return b[i] if b[i] else " "
+                        print(f"\n {c(0)} | {c(1)} | {c(2)}\n-----------\n {c(3)} | {c(4)} | {c(5)}\n-----------\n {c(6)} | {c(7)} | {c(8)}\n")
                     else:
                         print("Failed to send your move.")
                     continue
+
 
                 # Case 2: ongoing game vs this user
                 my_games = [ (gid,g) for gid,g in ttt_games.items() if target_uid in g.get("players", {}).values() ]
