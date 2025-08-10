@@ -600,6 +600,7 @@ def main():
 
                 # Case 1: there is an invite from this user
                 # inside the Tic Tac Toe menu, when there is an invite from target_uid:
+                # inside the Tic Tac Toe menu, when there is an invite from target_uid:
                 invite_key = next((k for k in ttt_invites.keys() if k[0] == target_uid), None)
                 if invite_key:
                     inv = ttt_invites[invite_key]
@@ -659,6 +660,7 @@ def main():
                     else:
                         print("Failed to send your move.")
                     continue
+
 
 
                 # Case 2: ongoing game vs this user

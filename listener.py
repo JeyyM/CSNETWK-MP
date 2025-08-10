@@ -68,15 +68,15 @@ def start_listener(verbose: bool = False):
                 handle_post(msg, addr, verbose)
             elif mtype == "LIKE":
                 handle_like(msg, addr, verbose)
+            elif mtype == "ACK":
+                if verbose:
+                    print(f"✅ ACK received from {addr}")
             elif mtype == "TICTACTOE_INVITE":
                 handle_tictactoe_invite(msg, addr, sock, verbose)
             elif mtype == "TICTACTOE_MOVE":
                 handle_tictactoe_move(msg, addr, sock, verbose)
             elif mtype == "TICTACTOE_RESULT":
                 handle_tictactoe_result(msg, addr, sock, verbose)
-            elif mtype == "ACK":
-                if verbose:
-                    print(f"✅ ACK received from {addr}")
 
 
     except KeyboardInterrupt:
