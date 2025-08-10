@@ -18,7 +18,6 @@ from .ui.dm_menu import DirectMessageMenu
 from .ui.game_menu import GameMenu
 from .utils.setup import create_user_profile
 
-
 class LSNPApplication:
     """Main LSNP application controller."""
     
