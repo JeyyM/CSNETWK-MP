@@ -18,6 +18,7 @@ from .ui.dm_menu import DirectMessageMenu
 from .ui.game_menu import GameMenu
 from .utils.setup import create_user_profile
 from .services.file_service import FileService
+from .ui.file_menu import FileMenu
 from .core import state as core_state
 
 
@@ -77,11 +78,14 @@ class LSNPApplication:
         self.dm_menu = DirectMessageMenu(self.user, self.message_service, self.user_service)
         self.game_menu = GameMenu(self.user, self.game_service, self.user_service)
 
-        self.file_service = FileService(self.network_manager, self.user)
-        # expose to global app_state so handlers can find it too
+        # File service + UI
+        self.file_service = FileService(self.network_manager, self.user, verbose=self.user.verbose)
+        # expose to global app_state so handlers can access it
         core_state.app_state.file_service = self.file_service
-        # optional: register UI callback so main UI can render incoming offers
+        # register UI callback for notifications (non-blocking)
         core_state.app_state.register_incoming_file_listener(self._on_incoming_offer)
+        # create FileMenu
+        self.file_menu = FileMenu(self.user, self.file_service, self.network_manager)
     
     def start(self) -> None:
         """Start the application."""
@@ -144,49 +148,7 @@ class LSNPApplication:
                     print("Group messages not yet implemented.\n")
                 
                 elif choice == "5":
-                    # File menu
-                    while True:
-                        print("\n[Files] (S) Send file  (I) Incoming offers  (B) Back")
-                        sub = input("> ").strip().upper()
-                        if sub == "B":
-                            break
-                        if sub == "S":
-                            to_uid = input("Send to (USER_ID): ").strip()
-                            path = input("File path: ").strip()
-                            desc = input("Description (optional): ").strip()
-                            fid = self.file_service.offer_file(to_uid, path, desc)
-                            if fid:
-                                print(f"Offer sent (FILEID={fid}). Waiting for accept...")
-                        elif sub == "I":
-                            # list incoming offers
-                            offers = list(self.file_service.incoming_offers.items())
-                            if not offers:
-                                print("No incoming offers.")
-                                continue
-                            for i,(fid,offer) in enumerate(offers, start=1):
-                                print(f"[{i}] {fid} from {offer['from']} -> {offer['filename']} ({offer['filesize']} bytes)")
-                            sel = input("Select offer # to accept/reject (or B): ").strip()
-                            if sel.upper() == "B":
-                                continue
-                            try:
-                                idx = int(sel)-1
-                                fid = offers[idx][0]
-                            except Exception:
-                                print("Invalid selection.")
-                                continue
-                            act = input("(A)ccept or (R)eject? ").strip().upper()
-                            if act == "A":
-                                ok = self.file_service.accept_offer(fid)
-                                if ok:
-                                    print("Accepted. Waiting for transfer...")
-                            elif act == "R":
-                                ok = self.file_service.reject_offer(fid)
-                                if ok:
-                                    print("Rejected.")
-                            else:
-                                print("Unknown action.")
-                        else:
-                            print("Unknown option.")
+                    self.file_menu.show_file_menu()
 
                 
                 elif choice == "6":
@@ -231,10 +193,9 @@ class LSNPApplication:
         print()
     
     def _on_incoming_offer(self, fileid: str, offer: dict) -> None:
-        # This runs in listener thread context; just print a notification.
-        display = offer.get("from", "").split("@")[0]  # fallback name
-        print(f"\n📂 Incoming file offer {fileid} from {display}: {offer.get('filename')} ({offer.get('filesize')} bytes)\n"
-            f"Open Files menu to accept or reject.\n")
+        from_user = offer.get("from", "").split("@")[0]
+        print(f"\n📂 Incoming file offer {fileid} from {from_user}: {offer.get('filename')} ({offer.get('filesize')} bytes)")
+        print("Open Files menu to accept or reject.")
 
 
 

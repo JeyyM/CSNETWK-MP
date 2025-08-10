@@ -1,5 +1,5 @@
 """Central application state management."""
-from typing import Dict, List, Set, Optional
+from typing import Dict, List, Set, Optional, Callable
 from threading import Lock
 import time
 
@@ -12,23 +12,24 @@ class ApplicationState:
     
     def __init__(self):
         self._lock = Lock()
-        
+
         # Network state
         self._peers: Dict[str, Peer] = {}
         self._user_ip_map: Dict[str, str] = {}
-        
+
         # Social features
         self._following: Set[str] = set()
         self._post_feed: List[Post] = []
         self._dm_history: Dict[str, List[DirectMessage]] = {}
         self._active_dm_user: Optional[str] = None
-        
+
         # Game state
         self._ttt_invites: Dict[tuple, TicTacToeInvite] = {}
         self._ttt_games: Dict[str, TicTacToeGame] = {}
 
-        # File transfer listeners
-        self._incoming_file_listeners: list = []
+        # File offer listeners (UI callbacks)
+        # Callback signature: fn(fileid: str, offer: dict)
+        self._incoming_file_listeners: List[Callable[[str, dict], None]] = []
     
     # Peer management
     def add_peer(self, peer: Peer) -> None:
@@ -202,7 +203,7 @@ class ApplicationState:
             except Exception:
                 pass
 
-    def register_incoming_file_listener(self, callback):
+    def register_incoming_file_listener(self, callback: Callable[[str, dict], None]):
         """Callback signature: fn(fileid: str, offer: dict)"""
         self._incoming_file_listeners.append(callback)
 
