@@ -8,5 +8,3 @@
 /dataSources.local.xml
 
 .idea/
-**/__pycache__/
-**/*.pyc
