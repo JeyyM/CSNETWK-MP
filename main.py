@@ -98,11 +98,10 @@ def display_dm_history(target_uid, user_display_name):
     else:
         print("📭 No chat history with this user yet.\n")
 
-def show_recent_messages(target_uid, count=5):
-    """Show the last N messages in the conversation."""
+def show_recent_messages(target_uid, count=20):  # bump to 20 (or None to show all)
     history = dm_history.get(target_uid, [])
     if history:
-        recent = history[-count:] if len(history) > count else history
+        recent = history[-count:] if count else history  # show all if count is None/Falsey
         print("\n" + "─" * 40)
         for msg in recent:
             print(msg)
