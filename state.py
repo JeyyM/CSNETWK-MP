@@ -10,4 +10,4 @@ post_feed = []       # list of posts (only those received via broadcast)
 ttt_games = {}       # gameid -> {board, players, next_symbol, turn, moves_seen:set[int]}
 
 # ACK tracking for retry logic (invite/move)
-ack_seen = set()     # set of MESSAGE_IDs we've ACKed (receiver) or have received ACK for (sender)
+ttt_invites = {}

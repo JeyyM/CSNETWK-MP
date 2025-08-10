@@ -1,169 +1,125 @@
 # handlers/tictactoe_handler.py
-import time
-
+import time, socket
 from protocol import build_message
-from state import ttt_games, profile_data, user_ip_map, ack_seen
+from state import user_ip_map, profile_data, ttt_invites, ttt_games
 from dedupe import seen_before
 
-WIN_LINES = [
-    (0,1,2), (3,4,5), (6,7,8),   # rows
-    (0,3,6), (1,4,7), (2,5,8),   # cols
-    (0,4,8), (2,4,6),            # diags
-]
+PORT = 50999
+WIN_LINES = [(0,1,2),(3,4,5),(6,7,8),(0,3,6),(1,4,7),(2,5,8),(0,4,8),(2,4,6)]
 
 def _print_board(board):
-    def cell(i): return board[i] if board[i] else " "
-    print(f"\n {cell(0)} | {cell(1)} | {cell(2)}")
-    print("-----------")
-    print(f" {cell(3)} | {cell(4)} | {cell(5)}")
-    print("-----------")
-    print(f" {cell(6)} | {cell(7)} | {cell(8)}\n")
+    def c(i): return board[i] if board[i] else " "
+    print(f"\n {c(0)} | {c(1)} | {c(2)}\n-----------\n {c(3)} | {c(4)} | {c(5)}\n-----------\n {c(6)} | {c(7)} | {c(8)}\n")
 
-def _send_ack(sock, addr, message_id, verbose):
-    ack = build_message({"TYPE": "ACK", "MESSAGE_ID": message_id, "STATUS": "RECEIVED"}).encode("utf-8")
+def _ack(sock, addr, message_id, verbose):
+    if not message_id:
+        return
+    msg = build_message({"TYPE":"ACK","MESSAGE_ID":message_id,"STATUS":"RECEIVED"}).encode("utf-8")
     try:
-        sock.sendto(ack, addr)
-        if verbose:
-            print(f"[TTT] ACK sent for {message_id} to {addr}")
+        sock.sendto(msg, addr)
+        if verbose: print(f"[TTT] ACK {message_id} -> {addr}")
     except Exception as e:
-        if verbose:
-            print(f"[TTT] ACK send failed: {e}")
+        if verbose: print(f"[TTT] ACK send failed: {e}")
 
-def handle_ttt_invite(msg: dict, addr, sock, verbose: bool):
-    """TYPE: TICTACTOE_INVITE (unicast)"""
-    from_user = msg.get("FROM")
-    to_user   = msg.get("TO")
-    gid       = msg.get("GAMEID")
-    symbol    = msg.get("SYMBOL", "X").upper()
-    mid       = msg.get("MESSAGE_ID")
+def _send_unicast_str(msg_str: str, to_ip: str, verbose=False):
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.sendto(msg_str.encode("utf-8"), (to_ip, PORT))
+        if verbose: print(f"[TTT] sent -> {to_ip}")
+    finally:
+        s.close()
 
-    if not from_user or not gid or symbol not in {"X","O"}:
+def handle_tictactoe_invite(msg: dict, addr, sock, verbose: bool):
+    # TYPE: TICTACTOE_INVITE
+    f = msg.get("FROM"); t = msg.get("TO"); gid = msg.get("GAMEID")
+    sym = (msg.get("SYMBOL") or "").upper()
+    mid = msg.get("MESSAGE_ID")
+
+    if seen_before(mid):
+        if verbose: print(f"DROP dup INVITE {mid}")
+        _ack(sock, addr, mid, verbose)
+        return
+
+    if not f or not t or not gid or sym not in {"X","O"}:
         if verbose: print("[TTT] INVITE missing fields")
         return
 
-    # Duplicate suppression by MESSAGE_ID
+    # learn sender IP
+    user_ip_map[f] = addr[0]
+
+    # store invite; accept will be done from main menu
+    ttt_invites[(f, gid)] = {
+        "from": f, "to": t, "gameid": gid, "symbol": sym, "timestamp": int(time.time())
+    }
+
+    disp = profile_data.get(f, {}).get("display_name", f.split("@")[0])
+    print(f"{disp} is inviting you to play tic-tac-toe. (game {gid})")
+
+    _ack(sock, addr, mid, verbose)
+
+def handle_tictactoe_move(msg: dict, addr, sock, verbose: bool):
+    # TYPE: TICTACTOE_MOVE
+    f = msg.get("FROM"); t = msg.get("TO"); gid = msg.get("GAMEID")
+    pos_raw = msg.get("POSITION"); sym = (msg.get("SYMBOL") or "").upper()
+    turn_raw = msg.get("TURN"); mid = msg.get("MESSAGE_ID")
+
     if seen_before(mid):
-        if verbose: print(f"DROP! duplicate INVITE {mid}")
-        _send_ack(sock, addr, mid, verbose)  # idempotent: ACK again
+        if verbose: print(f"DROP dup MOVE {mid}")
+        _ack(sock, addr, mid, verbose)
         return
 
-    # Learn sender IP
-    user_ip_map[from_user] = addr[0]
-
-    # If game does not exist, create it
-    if gid not in ttt_games:
-        # Who plays what: inviter chose SYMBOL; invitee gets the other
-        other = "O" if symbol == "X" else "X"
-        ttt_games[gid] = {
-            "board": [""]*9,
-            "players": {
-                symbol: from_user,   # inviter
-                other:  to_user,     # invitee (us)
-            },
-            "next_symbol": "X",      # X always starts
-            "turn": 1,
-            "moves_seen": set(),     # set of TURN numbers processed
-        }
-
-    display = profile_data.get(from_user, {}).get("display_name", from_user.split("@")[0])
-    print(f"{display} is inviting you to play tic-tac-toe. (game {gid})")
-    _print_board(ttt_games[gid]["board"])
-
-    # ACK the invite
-    if mid:
-        ack_seen.add(mid)  # mark we've seen/ACKed
-        _send_ack(sock, addr, mid, verbose)
-
-def handle_ttt_move(msg: dict, addr, sock, verbose: bool):
-    """TYPE: TICTACTOE_MOVE (unicast both ways)"""
-    from_user = msg.get("FROM")
-    to_user   = msg.get("TO")
-    gid       = msg.get("GAMEID")
-    pos_raw   = msg.get("POSITION")
-    symbol    = (msg.get("SYMBOL") or "").upper()
-    turn_raw  = msg.get("TURN")
-    mid       = msg.get("MESSAGE_ID")
-
-    # Dedup by MESSAGE_ID
-    if seen_before(mid):
-        if verbose: print(f"DROP! duplicate MOVE id={mid}")
-        _send_ack(sock, addr, mid, verbose)
-        return
-
-    # Basic validation
-    if not from_user or gid is None or pos_raw is None or symbol not in {"X","O"} or turn_raw is None:
+    if not f or not t or not gid or sym not in {"X","O"} or pos_raw is None or turn_raw is None:
         if verbose: print("[TTT] MOVE missing fields")
         return
 
+    user_ip_map[f] = addr[0]
+
     try:
-        pos  = int(pos_raw)
-        turn = int(turn_raw)
+        pos = int(pos_raw); turn = int(turn_raw)
     except ValueError:
-        if verbose: print("[TTT] MOVE bad ints")
+        if verbose: print("[TTT] MOVE invalid ints")
         return
 
+    # game skeleton if missing
     if gid not in ttt_games:
-        # Late join: create minimal game state (we'll trust the first sender layout)
-        ttt_games[gid] = {"board":[""]*9, "players":{symbol:from_user}, "next_symbol":"X", "turn":1, "moves_seen":set()}
+        ttt_games[gid] = {"board":[""]*9,"players":{sym:f},"next_symbol":"X","turn":1,"moves_seen":set()}
 
     g = ttt_games[gid]
-    board = g["board"]
-    players = g["players"]
+    board = g["board"]; players = g["players"]
+    # ensure players map contains sender
+    if sym not in players: players[sym] = f
 
-    # Learn IP of sender
-    user_ip_map[from_user] = addr[0]
-
-    # dup detection by (GAMEID, TURN)
+    # duplicate turn guard
     if turn in g["moves_seen"]:
-        if verbose: print(f"[TTT] duplicate TURN={turn} for {gid} (idempotent ACK)")
-        _send_ack(sock, addr, mid, verbose)
+        if verbose: print(f"[TTT] duplicate TURN={turn} for {gid} (idempotent)")
+        _ack(sock, addr, mid, verbose)
         return
 
-    # Rules: check sender matches assigned symbol, turn order, empty cell
-    if players.get(symbol) != from_user:
-        if verbose: print("[TTT] symbol/player mismatch – ignoring for game logic")
-        _send_ack(sock, addr, mid, verbose)
-        return
-
-    if g["next_symbol"] != symbol or g["turn"] != turn:
-        if verbose: print("[TTT] out-of-turn move – ignoring for game logic")
-        _send_ack(sock, addr, mid, verbose)
-        return
-
+    # rule checks: correct player/symbol, correct turn, empty cell
+    if players.get(sym) != f:
+        if verbose: print("[TTT] symbol vs sender mismatch (ignored for logic)")
+        _ack(sock, addr, mid, verbose); return
+    if g["next_symbol"] != sym or g["turn"] != turn:
+        if verbose: print("[TTT] out-of-turn move (ignored for logic)")
+        _ack(sock, addr, mid, verbose); return
     if not (0 <= pos <= 8) or board[pos]:
-        if verbose: print("[TTT] invalid position")
-        _send_ack(sock, addr, mid, verbose)
-        return
+        if verbose: print("[TTT] invalid pos")
+        _ack(sock, addr, mid, verbose); return
 
-    # Apply move
-    board[pos] = symbol
+    # apply
+    board[pos] = sym
     g["moves_seen"].add(turn)
-
-    # Advance turn
     g["turn"] += 1
-    g["next_symbol"] = "O" if symbol == "X" else "X"
+    g["next_symbol"] = "O" if sym == "X" else "X"
 
-    # Show board
     _print_board(board)
+    _ack(sock, addr, mid, verbose)
 
-    # ACK the move
-    if mid:
-        ack_seen.add(mid)
-        _send_ack(sock, addr, mid, verbose)
-
-def handle_ttt_result(msg: dict, addr, sock, verbose: bool):
-    """TYPE: TICTACTOE_RESULT (unicast)"""
-    gid     = msg.get("GAMEID")
-    result  = (msg.get("RESULT") or "").upper()   # WIN | LOSS | DRAW | FORFEIT
-    symbol  = (msg.get("SYMBOL") or "").upper()
-    wline   = msg.get("WINNING_LINE", "")
-    mid     = msg.get("MESSAGE_ID")
-
-    if gid not in ttt_games:
-        ttt_games[gid] = {"board":[""]*9, "players":{}, "next_symbol":"X", "turn":1, "moves_seen":set()}
-
-    print(f"[TTT RESULT] game={gid} result={result} as {symbol} winning_line={wline}")
-    _print_board(ttt_games[gid]["board"])
-
-    # No state change needed (terminal message)
-    # No ACK required by RFC here, but harmless if you want to add one.
+def handle_tictactoe_result(msg: dict, addr, sock, verbose: bool):
+    gid = msg.get("GAMEID")
+    res = (msg.get("RESULT") or "").upper()
+    sym = (msg.get("SYMBOL") or "").upper()
+    wline = msg.get("WINNING_LINE","")
+    print(f"[TTT RESULT] game={gid} result={res} as {sym} line={wline}")
+    if gid in ttt_games:
+        _print_board(ttt_games[gid]["board"])

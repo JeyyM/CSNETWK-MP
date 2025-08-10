@@ -11,6 +11,10 @@ from listener import start_listener, peer_table, profile_data, user_ip_map
 from ping import send_ping, get_broadcast_ip
 from game_client import start_game_invite, send_move, get_board
 
+from state import ttt_invites, ttt_games
+from game_client import start_game_invite, send_move
+
+
 following = set()
 
 def clear_console():
@@ -528,59 +532,147 @@ def main():
 
 
         elif choice == "6":
-            # Choose opponent
-            now = time.time()
-            peers = [uid for uid, last_seen in peer_table.items() if now - last_seen < 60 and uid != user["user_id"]]
-            if not peers:
-                print("No peers available.\n")
-                continue
+            # === Tic Tac Toe Menu ===
+            def render_board(b):
+                def c(i): return b[i] if b[i] else " "
+                print(f"\n {c(0)} | {c(1)} | {c(2)}\n-----------\n {c(3)} | {c(4)} | {c(5)}\n-----------\n {c(6)} | {c(7)} | {c(8)}\n")
 
-            print("\n==== Opponents ====")
-            for idx, uid in enumerate(peers, 1):
-                display = profile_data.get(uid, {}).get("display_name", uid.split("@")[0])
-                print(f"[{idx}] {display} ({uid})")
-            sel = input("Pick opponent #: ").strip()
-            try:
-                opp_uid = peers[int(sel)-1]
-            except Exception:
-                print("❌ Invalid choice.")
-                continue
-
-            # Choose symbol
-            sym = input("Play as X or O? [X/O]: ").strip().upper() or "X"
-            if sym not in {"X","O"}:
-                print("❌ Symbol must be X or O.")
-                continue
-
-            ts = int(time.time())
-            token_game = f"{user['user_id']}|{ts+3600}|game"
-
-            gameid = start_game_invite(user["user_id"], user["display_name"], opp_uid, sym, token_game, verbose=user["verbose"])
-            if not gameid:
-                print("Invite not acknowledged. You may retry later from this menu.")
-                continue
-
-            print(f"🎮 Game started: {gameid}. Positions 0..8. Type 'board' to print; 'quit' to exit.")
-
-            # Simple move loop (you play when it's your turn)
             while True:
-                cmd = input("Your move> ").strip().lower()
-                if cmd in {"q","quit","exit"}:
+                now = time.time()
+                active = [uid for uid, last in peer_table.items() if now - last < 60 and uid != user["user_id"]]
+
+                # Build status list
+                items = []
+                for uid in active:
+                    has_inv = any(k[0] == uid for k in ttt_invites.keys())
+                    ongoing = any(uid in g.get("players", {}).values() for g in ttt_games.values())
+                    status = []
+                    if has_inv: status.append("Has Invite")
+                    if ongoing: status.append("Ongoing")
+                    items.append((uid, ", ".join(status) if status else "Idle"))
+
+                print("\n=== Tic Tac Toe ===")
+                print("[N] New game  [B] Back")
+                if not items:
+                    print("No active peers.")
+                else:
+                    for i,(uid,st) in enumerate(items,1):
+                        disp = profile_data.get(uid, {}).get("display_name", uid.split("@")[0])
+                        print(f"[{i}] {disp} ({uid}) {f'({st})' if st else ''}")
+
+                sel = input("Pick user #, or N/B: ").strip().upper()
+                if sel == "B":
                     break
-                if cmd == "board":
-                    b = get_board(gameid)
-                    if b:
-                        print(f"\n {b[0] or ' '} | {b[1] or ' '} | {b[2] or ' '}\n-----------\n {b[3] or ' '} | {b[4] or ' '} | {b[5] or ' '}\n-----------\n {b[6] or ' '} | {b[7] or ' '} | {b[8] or ' '}\n")
+                if sel == "N":
+                    if not active:
+                        print("No peers to invite."); continue
+                    try:
+                        # choose opponent
+                        for i, uid in enumerate(active,1):
+                            disp = profile_data.get(uid, {}).get("display_name", uid.split("@")[0])
+                            print(f"[{i}] {disp} ({uid})")
+                        j = int(input("Invite which #? ").strip())
+                        opp = active[j-1]
+                    except Exception:
+                        print("Invalid."); continue
+                    sym = input("Play as X or O? [X/O]: ").strip().upper() or "X"
+                    if sym not in {"X","O"}:
+                        print("Symbol must be X or O."); continue
+                    ts = int(time.time())
+                    token_game = f"{user['user_id']}|{ts+3600}|game"
+                    gid = start_game_invite(user["user_id"], opp, sym, token_game, verbose=user["verbose"])
+                    if gid:
+                        print(f"Invite sent for game {gid}.")
+                    else:
+                        print("Invite failed to send.")
+                    continue
+
+                # numeric selection -> open user context
+                try:
+                    idx = int(sel) - 1
+                    if idx < 0 or idx >= len(items): raise ValueError
+                except Exception:
+                    print("Invalid selection."); continue
+
+                target_uid = items[idx][0]
+                disp = profile_data.get(target_uid, {}).get("display_name", target_uid.split("@")[0])
+                print(f"\n== {disp} ==")
+
+                # Case 1: there is an invite from this user
+                invite_key = next((k for k in ttt_invites.keys() if k[0] == target_uid), None)
+                if invite_key:
+                    inv = ttt_invites[invite_key]
+                    gid = inv["gameid"]; inviter_symbol = inv["symbol"]
+                    my_symbol = "O" if inviter_symbol == "X" else "X"
+                    print(f"Invite detected (game {gid}). You are '{my_symbol}'.")
+                    move = input("Enter your first move [0-8] to ACCEPT, or 'n' to reject: ").strip().lower()
+                    if move == "n":
+                        del ttt_invites[invite_key]
+                        print("Invite rejected.")
+                        continue
+                    try:
+                        pos = int(move)
+                    except ValueError:
+                        print("Invalid input."); continue
+                    # ensure game exists locally
+                    if gid not in ttt_games:
+                        ttt_games[gid] = {"board":[""]*9,"players":{inviter_symbol: target_uid, my_symbol: user["user_id"]},
+                                        "next_symbol":"X","turn":1,"moves_seen":set()}
+                    ts = int(time.time())
+                    token_game = f"{user['user_id']}|{ts+3600}|game"
+                    ok = send_move(user["user_id"], target_uid, gid, pos, token_game, verbose=user["verbose"])
+                    if ok:
+                        print(f"Accepted invite. Played {pos}.")
+                        del ttt_invites[invite_key]
+                        render_board(ttt_games[gid]["board"])
+                    else:
+                        print("Failed to send your move.")
+                    continue
+
+                # Case 2: ongoing game vs this user
+                my_games = [ (gid,g) for gid,g in ttt_games.items() if target_uid in g.get("players", {}).values() ]
+                if not my_games:
+                    print("No invite or ongoing game with this user.")
+                    continue
+
+                # If multiple games with same user exist, pick one
+                if len(my_games) > 1:
+                    print("Multiple games found:")
+                    for i,(gid, g) in enumerate(my_games,1):
+                        print(f"  [{i}] {gid}")
+                    try:
+                        k = int(input("Pick game #: ").strip()); gid, game = my_games[k-1]
+                    except Exception:
+                        print("Invalid."); continue
+                else:
+                    gid, game = my_games[0]
+
+                b = game["board"]; ns = game["next_symbol"]; turn = game["turn"]
+                render_board(b)
+                # my symbol
+                my_sym = next((s for s,uid in game["players"].items() if uid == user["user_id"]), None)
+                if not my_sym:
+                    print("You are not a player in this game."); continue
+
+                if ns != my_sym:
+                    print(f"Waiting for opponent ({ns}'s turn).")
+                    continue
+
+                mv = input(f"Your move as {my_sym} [0-8] (or 'b' to back): ").strip().lower()
+                if mv == "b":
                     continue
                 try:
-                    pos = int(cmd)
+                    pos = int(mv)
                 except ValueError:
-                    print("Enter a number 0..8 (or 'board', 'quit').")
-                    continue
-
-                ok = send_move(user["user_id"], opp_uid, gameid, pos, verbose=user["verbose"], token_game=token_game)
+                    print("Invalid."); continue
+                ts = int(time.time())
+                token_game = f"{user['user_id']}|{ts+3600}|game"
+                ok = send_move(user["user_id"], target_uid, gid, pos, token_game, verbose=user["verbose"])
                 if not ok:
-                    print("Move not acknowledged (retries exhausted).")
+                    print("Move send failed.")
+                else:
+                    render_board(ttt_games[gid]["board"])
+
 
 
         elif choice == "7":

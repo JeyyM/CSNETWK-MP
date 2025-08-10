@@ -1,7 +1,7 @@
 # game_client.py
 import socket, time, uuid, random, re
 from protocol import build_message
-from state import user_ip_map, ttt_games, ack_seen, profile_data
+from state import user_ip_map, ttt_games, ttt_invites, profile_data
 
 PORT = 50999
 
@@ -18,38 +18,36 @@ def _send_unicast(msg_str: str, to_uid: str, verbose=False):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.sendto(msg_str.encode("utf-8"), (ip, PORT))
-        if verbose: print(f"[TTT] sent to {to_uid} @ {ip}")
+        if verbose: print(f"[TTT] sent -> {to_uid}@{ip}")
         return True
     finally:
         s.close()
 
-def _retry_send_wait_ack(msg_str: str, to_uid: str, message_id: str, retries=3, timeout=2.0, verbose=False):
-    for attempt in range(1, retries+1):
-        _send_unicast(msg_str, to_uid, verbose)
-        start = time.time()
-        while time.time() - start < timeout:
-            if message_id in ack_seen:
-                return True
-            time.sleep(0.05)
-        if verbose:
-            print(f"[TTT] no ACK for {message_id} (attempt {attempt}/{retries})")
-    return False
+def get_board(gameid: str):
+    """Return a string representation of the board for a given gameid."""
+    if gameid not in ttt_games:
+        return "No such game."
 
-def start_game_invite(my_uid: str, my_display: str, opponent_uid: str, symbol: str, token_game: str, verbose=False):
-    """Create local game and send INVITE (unicast, retry w/ ACK). Returns gameid or None."""
+    board = ttt_games[gameid]["board"]
+    rows = []
+    for i in range(0, 9, 3):
+        row = [board[i+j] if board[i+j] else "." for j in range(3)]
+        rows.append(" | ".join(row))
+    return "\n---------\n".join(rows)
+
+def start_game_invite(my_uid: str, opp_uid: str, symbol: str, token_game: str, verbose=False):
     symbol = symbol.upper()
-    if symbol not in {"X","O"}:
-        raise ValueError("symbol must be X or O")
+    if symbol not in {"X","O"}: raise ValueError("symbol must be X or O")
 
     gameid = f"g{random.randint(0,255)}"
     mid = uuid.uuid4().hex[:8]
     ts  = int(time.time())
 
-    # Initialize my local state
+    # preload my local game state (no moves yet)
     other = "O" if symbol == "X" else "X"
     ttt_games[gameid] = {
         "board": [""]*9,
-        "players": {symbol: my_uid, other: opponent_uid},
+        "players": {symbol: my_uid, other: opp_uid},
         "next_symbol": "X",
         "turn": 1,
         "moves_seen": set(),
@@ -58,7 +56,7 @@ def start_game_invite(my_uid: str, my_display: str, opponent_uid: str, symbol: s
     fields = {
         "TYPE": "TICTACTOE_INVITE",
         "FROM": my_uid,
-        "TO": opponent_uid,
+        "TO": opp_uid,
         "GAMEID": gameid,
         "MESSAGE_ID": mid,
         "SYMBOL": symbol,
@@ -66,50 +64,41 @@ def start_game_invite(my_uid: str, my_display: str, opponent_uid: str, symbol: s
         "TOKEN": token_game,
     }
     msg = build_message(fields)
-
-    ok = _retry_send_wait_ack(msg, opponent_uid, mid, retries=3, timeout=2.0, verbose=verbose)
+    ok = _send_unicast(msg, opp_uid, verbose)
     if not ok and verbose:
-        print("[TTT] Invite failed (no ACK). You can still retry from menu.")
+        print("[TTT] invite send failed")
     return gameid if ok else None
 
-def send_move(my_uid: str, opponent_uid: str, gameid: str, position: int, verbose=False, token_game: str=""):
-    """Apply my move locally, then send MOVE (unicast, retry w/ ACK)."""
+def send_move(my_uid: str, opp_uid: str, gameid: str, position: int, token_game: str, verbose=False):
     if gameid not in ttt_games:
-        if verbose: print("[TTT] unknown game")
-        return False
-
+        if verbose: print("[TTT] unknown game"); return False
     g = ttt_games[gameid]
     board = g["board"]
     if not (0 <= position <= 8) or board[position]:
-        if verbose: print("[TTT] invalid position")
-        return False
+        if verbose: print("[TTT] invalid position"); return False
 
+    # figure out my symbol
     my_symbol = None
     for s, uid in g["players"].items():
-        if uid == my_uid:
-            my_symbol = s
-            break
+        if uid == my_uid: my_symbol = s; break
     if not my_symbol:
-        if verbose: print("[TTT] you are not a player in this game")
-        return False
+        if verbose: print("[TTT] you are not a player"); return False
 
     if g["next_symbol"] != my_symbol:
-        if verbose: print("[TTT] not your turn")
-        return False
+        if verbose: print("[TTT] not your turn"); return False
 
-    # Apply locally
-    board[position] = my_symbol
     turn = g["turn"]
+    # apply locally (optimistic UI; peer will also apply)
+    board[position] = my_symbol
     g["moves_seen"].add(turn)
     g["turn"] += 1
     g["next_symbol"] = "O" if my_symbol == "X" else "X"
 
-    # Build and send MOVE
     mid = uuid.uuid4().hex[:8]
     fields = {
         "TYPE": "TICTACTOE_MOVE",
         "FROM": my_uid,
-        "TO": opponent_uid,
+        "TO": opp_uid,
         "GAMEID": gameid,
         "MESSAGE_ID": mid,
         "POSITION": position,
@@ -118,9 +107,4 @@ def send_move(my_uid: str, opponent_uid: str, gameid: str, position: int, verbos
         "TOKEN": token_game,
     }
     msg = build_message(fields)
-    ok = _retry_send_wait_ack(msg, opponent_uid, mid, retries=3, timeout=2.0, verbose=verbose)
-    return ok
-
-def get_board(gameid: str):
-    g = ttt_games.get(gameid)
-    return g["board"][:] if g else None
+    return _send_unicast(msg, opp_uid, verbose)
