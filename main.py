@@ -238,7 +238,9 @@ def main():
             from listener import post_feed
 
             while True:
-                sub_choice = input("\n[A] Add New Post\n[V] View Posts\n[B] Back to Main Menu\nSelect: ").strip().upper()
+                sub_choice = input(
+                    "\n[A] Add New Post\n[V] View Posts (Followed)\n[O] View ALL Posts (debug)\n[B] Back to Main Menu\nSelect: "
+                ).strip().upper()
 
                 if sub_choice == "A":
                     content = input("Enter your post (blank to cancel): ").strip()
@@ -251,12 +253,12 @@ def main():
                     ttl = 3600
                     token = f"{user['user_id']}|{timestamp+ttl}|broadcast"
 
-                    # TYPE: POST (broadcast)
+                    # TYPE: POST (broadcast) — includes TIMESTAMP for LIKE references
                     fields = {
                         "TYPE": "POST",
                         "USER_ID": user["user_id"],
                         "CONTENT": content,
-                        "TIMESTAMP": timestamp,   # <-- add this
+                        "TIMESTAMP": timestamp,
                         "TTL": ttl,
                         "MESSAGE_ID": message_id,
                         "TOKEN": token,
@@ -271,22 +273,59 @@ def main():
 
                     print("✅ Post broadcasted. Your message is now visible to followers.\n")
 
-                elif sub_choice == "V":
+                elif sub_choice in {"V", "O"}:
+                    # Build an index for debugging
+                    all_authors = []
+                    for p in post_feed:
+                        all_authors.append(p.get("user_id", "?"))
+
+                    # Helper: fallback match by display name if USER_ID changed (e.g., IP shift)
+                    def is_from_followed(post):
+                        if post["user_id"] in following:
+                            return True
+                        # fallback: match followed users by display name (best-effort)
+                        disp = post.get("display_name")
+                        # Derive display names for IDs in following
+                        followed_display_names = set(
+                            profile_data.get(uid, {}).get("display_name", uid.split("@")[0])
+                            for uid in following
+                        )
+                        return disp in followed_display_names
+
+                    if sub_choice == "V":
+                        # Only followed (plus your own)
+                        filtered_posts = [
+                            p for p in post_feed
+                            if is_from_followed(p) or p["user_id"] == user["user_id"]
+                        ]
+                    else:
+                        # "O" = View ALL posts (debug)
+                        filtered_posts = list(post_feed)
+
+                    if not filtered_posts:
+                        print("\n📭 No posts to show with current filter.")
+                        # Debug hints:
+                        print(f"   Following set size: {len(following)}")
+                        if following:
+                            print("   Following IDs:")
+                            for f in sorted(following):
+                                print(f"     - {f}")
+                        print(f"   Total posts received: {len(post_feed)}")
+                        if post_feed:
+                            print("   Sample authors seen:")
+                            for a in sorted(set(all_authors))[:10]:
+                                print(f"     - {a}")
+                        print()
+                        continue
+
+                    # Show posts
                     while True:
                         now = int(time.time())
-                        visible_posts = [
-                            post for post in post_feed
-                            if post["user_id"] in following or post["user_id"] == user["user_id"]
-                        ]
-
-                        if not visible_posts:
-                            print("\n📭 No posts to show from followed peers or yourself.\n")
-                            break
-
                         print("\n==== LSNP Post Feed ====\n")
                         post_keys = {}
-                        for idx, post in enumerate(visible_posts, start=1):
-                            age = now - post["timestamp"]
+
+                        for idx, post in enumerate(filtered_posts, start=1):
+                            age = max(0, now - int(post.get("timestamp", now)))
                             liked = user["user_id"] in post["likes"]
                             print(f"[{idx}] ({age}s ago) {post['display_name']} ({post['user_id']})")
                             print(f"📝 {post['content']}")
@@ -294,7 +333,7 @@ def main():
                             post_keys[f"{'U' if liked else 'L'}{idx}"] = post
 
                         print("========================")
-                        sub = input("\n[L#/U#] Like/Unlike post | [B] Back to Posts Menu\n").strip().upper()
+                        sub = input("\n[L#/U#] Like/Unlike post | [B] Back\n").strip().upper()
 
                         if sub == "B":
                             break
@@ -308,14 +347,8 @@ def main():
                             is_like = sub.startswith("L")
                             action = "LIKE" if is_like else "UNLIKE"
 
-                            # the post chosen
-                            post = post_keys.get(sub)
-                            if not post:
-                                print("❌ Invalid post number.")
-                                continue
-
                             author_uid = post["user_id"]
-                            post_ts = post["timestamp"]
+                            post_ts = int(post["timestamp"])
                             ts_now = int(time.time())
                             token = f"{user['user_id']}|{ts_now+3600}|broadcast"  # broadcast scope per RFC
 
@@ -325,7 +358,7 @@ def main():
                                 "FROM": user["user_id"],
                                 "TO": author_uid,
                                 "POST_TIMESTAMP": post_ts,
-                                "ACTION": action,          # LIKE or UNLIKE
+                                "ACTION": action,
                                 "TIMESTAMP": ts_now,
                                 "TOKEN": token,
                             }
@@ -341,14 +374,13 @@ def main():
                             else:
                                 post["likes"].discard(user["user_id"])
                                 print("💔 You unliked the post.\n")
-                            continue
-
 
                 elif sub_choice == "B":
                     break
 
                 else:
                     print("❌ Invalid option.\n")
+
 
         elif choice == "3":
             # Send a Direct Message (unicast)
