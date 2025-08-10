@@ -16,10 +16,10 @@ def clear_console():
     os.system("cls" if os.name == "nt" else "clear")
 
 def _broadcast_to_all(sock, data_bytes):
-    # Try calculated subnet broadcast and the limited broadcast
+    # Try subnet-directed and limited broadcast
     b1 = get_broadcast_ip()
     b2 = "255.255.255.255"
-    for bcast in {b1, b2}:  # set() avoids duplicates
+    for bcast in {b1, b2}:
         try:
             sock.sendto(data_bytes, (bcast, 50999))
         except Exception as e:
@@ -377,33 +377,46 @@ def main():
                             is_like = sub.startswith("L")
                             action = "LIKE" if is_like else "UNLIKE"
 
+                            post = post_keys.get(sub)
+                            if not post:
+                                print("❌ Invalid post number.")
+                                continue
+
                             author_uid = post["user_id"]
                             post_ts = int(post["timestamp"])
                             ts_now = int(time.time())
-                            token = f"{user['user_id']}|{ts_now+3600}|broadcast"  # broadcast scope per RFC
+                            like_msg_id = uuid.uuid4().hex[:8]  # for dedupe
+                            token = f"{user['user_id']}|{ts_now+3600}|broadcast"  # per RFC
 
-                            # Build LIKE/UNLIKE message to send to the post author
                             like_fields = {
                                 "TYPE": "LIKE",
                                 "FROM": user["user_id"],
                                 "TO": author_uid,
                                 "POST_TIMESTAMP": post_ts,
-                                "ACTION": action,
+                                "ACTION": action,          # LIKE or UNLIKE
                                 "TIMESTAMP": ts_now,
+                                "MESSAGE_ID": like_msg_id, # <-- add this
                                 "TOKEN": token,
                             }
                             like_msg = build_message(like_fields)
 
-                            # Send unicast to author
+                            # 1) Unicast to author (so they can notify/ack if needed)
                             _send_unicast(like_msg, author_uid, user["verbose"])
 
-                            # Optimistic UI update
+                            # 2) Broadcast so all peers (including ourselves) update counts
+                            bsock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                            bsock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                            _broadcast_to_all(bsock, like_msg.encode("utf-8"))
+                            bsock.close()
+
+                            # Optimistic UI update for our local view
                             if is_like:
                                 post["likes"].add(user["user_id"])
                                 print("❤️ You liked the post.\n")
                             else:
                                 post["likes"].discard(user["user_id"])
                                 print("💔 You unliked the post.\n")
+
 
                 elif sub_choice == "B":
                     break

@@ -95,17 +95,15 @@ def start_listener(verbose=False):
 from collections import deque
 
 _SEEN_IDS: set[str] = set()
-_SEEN_ORDER: deque[str] = deque(maxlen=4096)  # enough for a busy session
+_SEEN_ORDER: deque[str] = deque(maxlen=4096)
 
 def _seen_before(message_id: str | None) -> bool:
-    """Return True if we've already processed this MESSAGE_ID; otherwise record it."""
     if not message_id:
         return False
     if message_id in _SEEN_IDS:
         return True
     _SEEN_IDS.add(message_id)
     _SEEN_ORDER.append(message_id)
-    # keep the set in sync with the bounded deque
     while len(_SEEN_IDS) > _SEEN_ORDER.maxlen:
         old = _SEEN_ORDER.popleft()
         _SEEN_IDS.discard(old)
@@ -273,18 +271,24 @@ def handle_post(msg, addr, verbose):
 
 def handle_like(msg, addr, verbose):
     """
-    Process TYPE: LIKE
-    We update the local post object that matches (author == TO) and (timestamp == POST_TIMESTAMP).
-    Only the author is guaranteed to receive this (per RFC example), but if others do, it's harmless.
+    Process TYPE: LIKE or UNLIKE.
+    We update any matching post in our local feed (author == TO and timestamp == POST_TIMESTAMP).
     """
     global post_feed, profile_data
 
     liker_uid = msg.get("FROM")
     author_uid = msg.get("TO")
     post_ts_raw = msg.get("POST_TIMESTAMP")
-    action = msg.get("ACTION", "").upper()
+    action = (msg.get("ACTION") or "").upper()
+    message_id = msg.get("MESSAGE_ID")
 
-    # Basic validation
+    # Duplicate suppression
+    if _seen_before(message_id):
+        if verbose:
+            print(f"DROP! Duplicate LIKE (MESSAGE_ID={message_id}) from {addr}")
+        return
+
+    # Validate
     if not liker_uid or not author_uid or post_ts_raw is None or action not in {"LIKE", "UNLIKE"}:
         if verbose:
             print("[DEBUG] LIKE missing required fields")
@@ -297,7 +301,7 @@ def handle_like(msg, addr, verbose):
             print("[DEBUG] LIKE invalid POST_TIMESTAMP")
         return
 
-    # Find the post locally
+    # Find the post (any peer that has the post should update)
     target = None
     for p in post_feed:
         if p.get("user_id") == author_uid and int(p.get("timestamp", -1)) == post_ts:
@@ -309,18 +313,16 @@ def handle_like(msg, addr, verbose):
             print("[DEBUG] LIKE referenced post not found locally")
         return
 
-    # Update the likes set
+    # Update likes
     if action == "LIKE":
         target["likes"].add(liker_uid)
     else:
         target["likes"].discard(liker_uid)
 
-    # Friendly output (non-verbose printing per RFC suggests a short line)
-    liker_name = profile_data.get(liker_uid, {}).get("display_name", liker_uid.split("@")[0])
-    author_name = profile_data.get(author_uid, {}).get("display_name", author_uid.split("@")[0])
-    if verbose or author_uid in (profile_data.keys()):  # print for author or when verbose
-        verb = "likes" if action == "LIKE" else "unliked"
-        print(f"💌 {liker_name} {verb} your post (ts={post_ts}).")
+    if verbose:
+        liker_name = profile_data.get(liker_uid, {}).get("display_name", liker_uid.split("@")[0])
+        print(f"💌 LIKE update: {liker_name} {action.lower()}d post ts={post_ts}")
+
 
 # === (These helpers were in your snippet; keeping them here unchanged) ===
 def register_user():
