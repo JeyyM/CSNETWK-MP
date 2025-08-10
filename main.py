@@ -9,6 +9,7 @@ from protocol import build_message  # ✅ ensure consistent RFC formatting (\n\n
 from shared_state import dm_history, active_dm_user
 from listener import start_listener, peer_table, profile_data, user_ip_map
 from ping import send_ping, get_broadcast_ip
+from game_client import start_game_invite, send_move, get_board
 
 following = set()
 
@@ -524,6 +525,63 @@ def main():
                         print("   No IP address known for target. Wait for their ping/profile.")
                     else:
                         print(f"   Target IP: {user_ip_map[target_uid]}")
+
+
+        elif choice == "6":
+            # Choose opponent
+            now = time.time()
+            peers = [uid for uid, last_seen in peer_table.items() if now - last_seen < 60 and uid != user["user_id"]]
+            if not peers:
+                print("No peers available.\n")
+                continue
+
+            print("\n==== Opponents ====")
+            for idx, uid in enumerate(peers, 1):
+                display = profile_data.get(uid, {}).get("display_name", uid.split("@")[0])
+                print(f"[{idx}] {display} ({uid})")
+            sel = input("Pick opponent #: ").strip()
+            try:
+                opp_uid = peers[int(sel)-1]
+            except Exception:
+                print("❌ Invalid choice.")
+                continue
+
+            # Choose symbol
+            sym = input("Play as X or O? [X/O]: ").strip().upper() or "X"
+            if sym not in {"X","O"}:
+                print("❌ Symbol must be X or O.")
+                continue
+
+            ts = int(time.time())
+            token_game = f"{user['user_id']}|{ts+3600}|game"
+
+            gameid = start_game_invite(user["user_id"], user["display_name"], opp_uid, sym, token_game, verbose=user["verbose"])
+            if not gameid:
+                print("Invite not acknowledged. You may retry later from this menu.")
+                continue
+
+            print(f"🎮 Game started: {gameid}. Positions 0..8. Type 'board' to print; 'quit' to exit.")
+
+            # Simple move loop (you play when it's your turn)
+            while True:
+                cmd = input("Your move> ").strip().lower()
+                if cmd in {"q","quit","exit"}:
+                    break
+                if cmd == "board":
+                    b = get_board(gameid)
+                    if b:
+                        print(f"\n {b[0] or ' '} | {b[1] or ' '} | {b[2] or ' '}\n-----------\n {b[3] or ' '} | {b[4] or ' '} | {b[5] or ' '}\n-----------\n {b[6] or ' '} | {b[7] or ' '} | {b[8] or ' '}\n")
+                    continue
+                try:
+                    pos = int(cmd)
+                except ValueError:
+                    print("Enter a number 0..8 (or 'board', 'quit').")
+                    continue
+
+                ok = send_move(user["user_id"], opp_uid, gameid, pos, verbose=user["verbose"], token_game=token_game)
+                if not ok:
+                    print("Move not acknowledged (retries exhausted).")
+
 
         elif choice == "7":
             print(f"\nUsername: {user['username']}")

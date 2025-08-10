@@ -3,13 +3,15 @@ import socket
 import time
 
 from protocol import parse_message
-from state import peer_table, profile_data, user_ip_map, post_feed
+from state import peer_table, profile_data, user_ip_map, post_feed, ack_seen
 
 from handlers.ping_handler import handle_ping
 from handlers.profile_handler import handle_profile
 from handlers.dm_handler import handle_dm
 from handlers.post_handler import handle_post
 from handlers.like_handler import handle_like
+from handlers.tictactoe_handler import handle_ttt_invite, handle_ttt_move, handle_ttt_result
+
 
 PORT = 50999
 BUFFER_SIZE = 65535
@@ -65,12 +67,23 @@ def start_listener(verbose: bool = False):
                 handle_post(msg, addr, verbose)
             elif mtype == "LIKE":
                 handle_like(msg, addr, verbose)
+            elif mtype == "TICTACTOE_INVITE":
+                handle_ttt_invite(msg, addr, sock, verbose)
+            elif mtype == "TICTACTOE_MOVE":
+                handle_ttt_move(msg, addr, sock, verbose)
+            elif mtype == "TICTACTOE_RESULT":
+                handle_ttt_result(msg, addr, sock, verbose)
             elif mtype == "ACK":
+                # record ACKs to unblock retries
+                mid = msg.get("MESSAGE_ID")
+                if mid:
+                    ack_seen.add(mid)
                 if verbose:
-                    print(f"✅ ACK received from {addr}")
+                    print(f"✅ ACK received for {mid} from {addr}")
             else:
                 if verbose:
                     print(f"< RECV UNKNOWN from {addr}\n{raw}\n{'-'*40}")
+
 
     except KeyboardInterrupt:
         print("\n[INFO] Listener stopped.")
