@@ -191,6 +191,17 @@ class ApplicationState:
         with self._lock:
             return [game for game in self._ttt_games.values() 
                    if user_id in game.players.values()]
+    
+    def notify_incoming_file_offer(self, fileid: str, offer: dict) -> None:
+        for cb in self._incoming_file_listeners:
+            try:
+                cb(fileid, offer)
+            except Exception:
+                pass
+
+    def register_incoming_file_listener(self, callback):
+        """Callback signature: fn(fileid: str, offer: dict)"""
+        self._incoming_file_listeners.append(callback)
 
 
 # Global application state instance
