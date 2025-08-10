@@ -8,15 +8,12 @@ PORT = 50999
 WIN_LINES = [(0,1,2),(3,4,5),(6,7,8),(0,3,6),(1,4,7),(2,5,8),(0,4,8),(2,4,6)]
 
 def _print_board(board):
-    # Show symbol if taken; otherwise show the cell index number
-    def c(i): return board[i] if board[i] else str(i)
-    print(
-        f"\n {c(0)} | {c(1)} | {c(2)}\n"
-        "---------\n"
-        f" {c(3)} | {c(4)} | {c(5)}\n"
-        "---------\n"
-        f" {c(6)} | {c(7)} | {c(8)}\n"
-    )
+    def c(i): return board[i] if board[i] else " "
+    print(f"\n {c(0)} | {c(1)} | {c(2)}\n-----------\n {c(3)} | {c(4)} | {c(5)}\n-----------\n {c(6)} | {c(7)} | {c(8)}\n")
+
+def _print_numbered_grid():
+    # Show numbered slots for quick reference
+    print("\n 0 | 1 | 2\n-----------\n 3 | 4 | 5\n-----------\n 6 | 7 | 8\n")
 
 def _ack(sock, addr, message_id, verbose):
     if not message_id: return
@@ -48,7 +45,7 @@ def handle_tictactoe_invite(msg: dict, addr, sock, verbose: bool):
         "from": f, "to": t, "gameid": gid, "symbol": sym, "timestamp": int(time.time())
     }
 
-    # ensure we have a game shell so we can print a board
+    # ensure we have a game shell so we can keep state
     if gid not in ttt_games:
         other = "O" if sym == "X" else "X"
         ttt_games[gid] = {
@@ -61,7 +58,8 @@ def handle_tictactoe_invite(msg: dict, addr, sock, verbose: bool):
 
     disp = profile_data.get(f, {}).get("display_name", f.split("@")[0])
     print(f"{disp} is inviting you to play tic-tac-toe. (game {gid})")
-    _print_board(ttt_games[gid]["board"])   # numbered board on invite
+    # 👉 show numbered grid (not the live board) to help decide first move
+    _print_numbered_grid()
 
     _ack(sock, addr, mid, verbose)
 
@@ -103,13 +101,16 @@ def handle_tictactoe_move(msg: dict, addr, sock, verbose: bool):
         if verbose: print("[TTT] invalid/out-of-turn move (ignored)")
         _ack(sock, addr, mid, verbose); return
 
-    # apply
+    # apply the move to our local board/state
     b[pos] = sym
     g["moves_seen"].add(turn)
     g["turn"] += 1
     g["next_symbol"] = "O" if sym == "X" else "X"
 
-    _print_board(b)
+    # 👉 don't render the board here; only a brief notice
+    disp = profile_data.get(f, {}).get("display_name", f.split("@")[0])
+    print(f"{disp} has placed a move in {gid}")
+
     _ack(sock, addr, mid, verbose)
 
 def handle_tictactoe_result(msg: dict, addr, sock, verbose: bool):
@@ -122,12 +123,12 @@ def handle_tictactoe_result(msg: dict, addr, sock, verbose: bool):
     if gid in ttt_games:
         _print_board(ttt_games[gid]["board"])
 
-    # Terminal => clear both invite(s) and game on receiver side
+    # If invitee rejected using FORFEIT, or game ended, clean up local book-keeping
     if res in {"FORFEIT","DRAW","WIN","LOSS"}:
         # remove any invite entries for this gid
         for key in list(ttt_invites.keys()):
             if key[1] == gid:
                 del ttt_invites[key]
-        # drop finished/forfeited game locally so menus no longer show "ongoing"
-        if gid in ttt_games:
-            del ttt_games[gid]
+        # optional: drop finished game (your choice to keep/dump board on draw)
+        if gid in ttt_games and res != "DRAW":
+            pass
