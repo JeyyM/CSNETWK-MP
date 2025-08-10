@@ -1,10 +1,10 @@
 import threading
 import time
 import socket
-import random
 import os
 import uuid
 
+from protocol import build_message  # ✅ ensure consistent RFC formatting (\n\n)
 from shared_state import dm_history, active_dm_user
 from listener import start_listener, peer_table, profile_data, user_ip_map
 from ping import send_ping, get_broadcast_ip
@@ -15,15 +15,17 @@ def clear_console():
     os.system("cls" if os.name == "nt" else "clear")
 
 def broadcast_profile(user):
-    profile_msg = (
-        f"TYPE: PROFILE\n"
-        f"USER_ID: {user['user_id']}\n"
-        f"DISPLAY_NAME: {user['display_name']}\n"
-        f"STATUS: {user['status']}\n\n"
-    )
+    """Broadcast TYPE: PROFILE using build_message()."""
+    fields = {
+        "TYPE": "PROFILE",
+        "USER_ID": user["user_id"],
+        "DISPLAY_NAME": user["display_name"],
+        "STATUS": user["status"],
+    }
+    profile_msg = build_message(fields)
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        
     broadcast_ip = get_broadcast_ip()
     sock.sendto(profile_msg.encode("utf-8"), (broadcast_ip, 50999))
     sock.close()
@@ -43,7 +45,7 @@ def register_user():
         temp_sock.connect(("8.8.8.8", 80))
         ip = temp_sock.getsockname()[0]
         temp_sock.close()
-    except:
+    except Exception:
         ip = "127.0.0.1"  # fallback
 
     user_id = f"{username}@{ip}"
@@ -59,7 +61,7 @@ def register_user():
     }
 
 def _send_unicast(message, user_id, verbose=False):
-    """Send a unicast message to a specific user"""
+    """Send a unicast message to a specific user."""
     ip = user_ip_map.get(user_id, "127.0.0.1")
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -86,7 +88,7 @@ def show_menu():
     print("[8] Exit\n")
 
 def display_dm_history(target_uid, user_display_name):
-    """Display the full DM history for a conversation"""
+    """Display the full DM history for a conversation."""
     history = dm_history.get(target_uid, [])
     if history:
         print("📜 Chat History:")
@@ -97,7 +99,7 @@ def display_dm_history(target_uid, user_display_name):
         print("📭 No chat history with this user yet.\n")
 
 def show_recent_messages(target_uid, count=5):
-    """Show the last N messages in the conversation"""
+    """Show the last N messages in the conversation."""
     history = dm_history.get(target_uid, [])
     if history:
         recent = history[-count:] if len(history) > count else history
@@ -107,11 +109,10 @@ def show_recent_messages(target_uid, count=5):
         print("─" * 40)
 
 def add_to_dm_history(user_id, message, is_outgoing=False, user_display_name="You"):
-    """Add a message to DM history"""
+    """Add a message to DM history."""
     global dm_history
     if user_id not in dm_history:
         dm_history[user_id] = []
-    
     if is_outgoing:
         dm_history[user_id].append(f"{user_display_name}: {message}")
 
@@ -131,7 +132,7 @@ def main():
     time.sleep(1)  # Give listener time to start
     broadcast_profile(user)
 
-    # Start the periodic PING broadcaster thread
+    # Start the periodic PING broadcaster thread (keep short interval during dev)
     ping_thread = threading.Thread(
         target=send_ping,
         kwargs={"user_id": user["user_id"], "interval": 10, "verbose": user["verbose"]},
@@ -139,10 +140,10 @@ def main():
     )
     ping_thread.start()
 
-    # Periodic profile broadcaster thread
+    # Periodic PROFILE broadcaster thread (keep short interval during dev)
     def periodic_profile_broadcast():
         while True:
-            time.sleep(30)  # Broadcast profile every 30 seconds
+            time.sleep(30)
             broadcast_profile(user)
 
     profile_thread = threading.Thread(target=periodic_profile_broadcast, daemon=True)
@@ -158,6 +159,7 @@ def main():
             print(f"Verbose Mode {'enabled' if user['verbose'] else 'disabled'}.\n")
 
         elif choice == "1":
+            # View Peer Profiles + Follow/Unfollow
             while True:
                 now = time.time()
                 peers = [
@@ -203,32 +205,37 @@ def main():
                 token = f"{user['user_id']}|{timestamp+ttl}|follow"
 
                 if sub_choice.startswith("F"):
-                    follow_msg = (
-                        f"TYPE: FOLLOW\n"
-                        f"MESSAGE_ID: {message_id}\n"
-                        f"FROM: {user['user_id']}\n"
-                        f"TO: {target_uid}\n"
-                        f"TIMESTAMP: {timestamp}\n"
-                        f"TOKEN: {token}\n\n"
-                    )
-                    _send_unicast(follow_msg, target_uid)
+                    # TYPE: FOLLOW
+                    fields = {
+                        "TYPE": "FOLLOW",
+                        "MESSAGE_ID": message_id,
+                        "FROM": user["user_id"],
+                        "TO": target_uid,
+                        "TIMESTAMP": timestamp,
+                        "TOKEN": token,
+                    }
+                    follow_msg = build_message(fields)
+                    _send_unicast(follow_msg, target_uid, user["verbose"])
                     following.add(target_uid)
                     print(f"✅ Followed {target_uid}\n")
 
                 elif sub_choice.startswith("U"):
-                    unfollow_msg = (
-                        f"TYPE: UNFOLLOW\n"
-                        f"MESSAGE_ID: {message_id}\n"
-                        f"FROM: {user['user_id']}\n"
-                        f"TO: {target_uid}\n"
-                        f"TIMESTAMP: {timestamp}\n"
-                        f"TOKEN: {token}\n\n"
-                    )
-                    _send_unicast(unfollow_msg, target_uid)
+                    # TYPE: UNFOLLOW
+                    fields = {
+                        "TYPE": "UNFOLLOW",
+                        "MESSAGE_ID": message_id,
+                        "FROM": user["user_id"],
+                        "TO": target_uid,
+                        "TIMESTAMP": timestamp,
+                        "TOKEN": token,
+                    }
+                    unfollow_msg = build_message(fields)
+                    _send_unicast(unfollow_msg, target_uid, user["verbose"])
                     following.discard(target_uid)
                     print(f"🚫 Unfollowed {target_uid}\n")
 
         elif choice == "2":
+            # Posts Feed
             from listener import post_feed
 
             while True:
@@ -245,14 +252,16 @@ def main():
                     ttl = 3600
                     token = f"{user['user_id']}|{timestamp+ttl}|broadcast"
 
-                    post_msg = (
-                        f"TYPE: POST\n"
-                        f"USER_ID: {user['user_id']}\n"
-                        f"CONTENT: {content}\n"
-                        f"TTL: {ttl}\n"
-                        f"MESSAGE_ID: {message_id}\n"
-                        f"TOKEN: {token}\n\n"
-                    )
+                    # TYPE: POST (broadcast)
+                    fields = {
+                        "TYPE": "POST",
+                        "USER_ID": user["user_id"],
+                        "CONTENT": content,
+                        "TTL": ttl,
+                        "MESSAGE_ID": message_id,
+                        "TOKEN": token,
+                    }
+                    post_msg = build_message(fields)
 
                     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
@@ -309,18 +318,8 @@ def main():
                 else:
                     print("❌ Invalid option.\n")
 
-
-
-
-
-
-
-
-
-
-
-
         elif choice == "3":
+            # Send a Direct Message (unicast)
             now = time.time()
             peers = [uid for uid, last_seen in peer_table.items() if now - last_seen < 60 and uid != user["user_id"]]
 
@@ -353,19 +352,19 @@ def main():
             display_dm_history(target_uid, user["display_name"])
 
             while True:
-                msg = input(f"[You → {target_display}]: ").strip()
-                
-                if msg == "/exit":
+                msg_text = input(f"[You → {target_display}]: ").strip()
+
+                if msg_text == "/exit":
                     print("👋 Exiting DM chat.\n")
                     active_dm_user = None
                     break
-                
-                if msg == "/refresh":
+
+                if msg_text == "/refresh":
                     print("\n🔄 Refreshing chat...\n")
                     display_dm_history(target_uid, user["display_name"])
                     continue
-                
-                if msg == "/debug":
+
+                if msg_text == "/debug":
                     print(f"\nDEBUG INFO:")
                     print(f"Target UID: {target_uid}")
                     print(f"Your UID: {user['user_id']}")
@@ -381,56 +380,43 @@ def main():
                         print(f"No message history with {target_uid}")
                     print()
                     continue
-                
-                if not msg:
+
+                if not msg_text:
                     continue
 
                 message_id = uuid.uuid4().hex[:8]
                 timestamp = int(time.time())
                 token = f"{user['user_id']}|{timestamp+300}|chat"
 
-                dm_msg = (
-                    f"TYPE: DM\n"
-                    f"FROM: {user['user_id']}\n"
-                    f"TO: {target_uid}\n"
-                    f"CONTENT: {msg}\n"
-                    f"TIMESTAMP: {timestamp}\n"
-                    f"MESSAGE_ID: {message_id}\n"
-                    f"TOKEN: {token}\n\n"
-                )
+                # TYPE: DM (unicast)
+                fields = {
+                    "TYPE": "DM",
+                    "FROM": user["user_id"],
+                    "TO": target_uid,
+                    "CONTENT": msg_text,
+                    "TIMESTAMP": timestamp,
+                    "MESSAGE_ID": message_id,
+                    "TOKEN": token,
+                }
+                dm_msg = build_message(fields)
 
                 if user["verbose"]:
-                    print(f"[DEBUG] Sending DM to {target_uid}: {msg}")
+                    print(f"[DEBUG] Sending DM to {target_uid}: {msg_text}")
 
                 success = _send_unicast(dm_msg, target_uid, user["verbose"])
                 if success:
                     # Add your own message to history
-                    add_to_dm_history(target_uid, msg, is_outgoing=True, user_display_name=user["display_name"])
-                    
+                    add_to_dm_history(target_uid, msg_text, is_outgoing=True, user_display_name=user["display_name"])
+
                     # Show the recent conversation including your sent message
                     show_recent_messages(target_uid, count=5)
-                    
+
                 else:
                     print(f"❌ Failed to send message to {target_display}")
-                    # Check if we have the target's IP
                     if target_uid not in user_ip_map:
-                        print(f"   No IP address known for {target_uid}. Try waiting for them to send a ping or profile update.")
+                        print("   No IP address known for target. Wait for their ping/profile.")
                     else:
                         print(f"   Target IP: {user_ip_map[target_uid]}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
         elif choice == "7":
             print(f"\nUsername: {user['username']}")

@@ -1,8 +1,12 @@
-# === Fixed listener.py ===
+# === listener.py (RFC-safe parsing & terminator enforcement) ===
 import socket
 import time
-from shared_state import dm_history, active_dm_user
 import random
+
+from shared_state import dm_history, active_dm_user
+
+# NEW: use the protocol helpers so we parse/build consistently
+from protocol import parse_message, build_message
 
 PORT = 50999
 BUFFER_SIZE = 65535
@@ -18,9 +22,8 @@ def start_listener(verbose=False):
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)  # ✅ Enables receiving broadcasts
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)  # receive broadcasts
 
-        
     # Try to bind to the port, with retry logic
     max_retries = 5
     for retry in range(max_retries):
@@ -40,11 +43,7 @@ def start_listener(verbose=False):
         while True:
             try:
                 data, addr = sock.recvfrom(BUFFER_SIZE)
-                message = data.decode("utf-8", errors="ignore")
-                
-                if verbose:
-                    print(f"\n[DEBUG] Received from {addr}: {message[:100]}...")
-
+                raw = data.decode("utf-8", errors="ignore")
             except ConnectionResetError as e:
                 if verbose:
                     print(f"⚠️  Connection reset: {e}")
@@ -54,117 +53,105 @@ def start_listener(verbose=False):
                     print(f"⚠️  Receive error: {e}")
                 continue
 
-            msg_type = message.strip().splitlines()[0].strip()
+            # RFC-safe parse: enforce \n\n and get a dict of fields
+            msg = parse_message(raw)
+            if not msg:
+                if verbose:
+                    print(f"DROP! Invalid or unterminated message from {addr}.")
+                continue
 
-            # Parse message type
-            if "TYPE: PING" in msg_type:
-                handle_ping(message, addr, verbose)
-            elif "TYPE: PROFILE" in msg_type:
-                handle_profile(message, addr, verbose)
-            elif "TYPE: DM" in msg_type:
-                handle_dm(message, addr, verbose)
-            elif "TYPE: POST" in msg_type:
-                handle_post(message, addr, verbose)
-            elif "TYPE: ACK" in msg_type:
+            if verbose:
+                t = time.strftime("%H:%M:%S")
+                print(f"\nRECV< {t} {addr[0]}:{addr[1]} TYPE={msg.get('TYPE','?')}")
+
+            # Route by TYPE (no assumption about field order)
+            mtype = msg.get("TYPE", "")
+            if mtype == "PING":
+                handle_ping(msg, addr, verbose)
+            elif mtype == "PROFILE":
+                handle_profile(msg, addr, verbose)
+            elif mtype == "DM":
+                handle_dm(msg, addr, verbose)
+            elif mtype == "POST":
+                handle_post(msg, addr, verbose)
+            elif mtype == "ACK":
                 if verbose:
                     print(f"✅ ACK received from {addr}")
-            elif verbose:
-                print(f"< RECV UNKNOWN from {addr}\n{message}\n{'-'*40}")
-
+            else:
+                if verbose:
+                    print(f"< RECV UNKNOWN from {addr}\n{raw}\n{'-'*40}")
 
     except KeyboardInterrupt:
         print("\n[INFO] Listener stopped.")
     finally:
         sock.close()
 
-def handle_ping(message, addr, verbose):
+def handle_ping(msg, addr, verbose):
+    """Process TYPE: PING"""
     global peer_table, user_ip_map
+    user_id = msg.get("USER_ID")
+    if not user_id:
+        if verbose: print("[DEBUG] PING missing USER_ID")
+        return
 
-    user_id = None
-    for line in message.strip().splitlines():
-        line = line.strip()
-        if verbose:
-            print(f"[DEBUG] PING line: {line}")
-        if line.startswith("USER_ID:"):
-            user_id = line.split(":", 1)[1].strip()
-            break
+    peer_table[user_id] = time.time()
+    user_ip_map[user_id] = addr[0]
+    if verbose:
+        print(f"📡 PING from {user_id} at {addr[0]}")
 
-    if user_id:
-        peer_table[user_id] = time.time()
-        user_ip_map[user_id] = addr[0]
-        if verbose:
-            print(f"📡 PING from {user_id} at {addr[0]}")
-            print(f"[DEBUG] peer_table now: {list(peer_table.keys())}")
-
-def handle_profile(message, addr, verbose):
+def handle_profile(msg, addr, verbose):
+    """Process TYPE: PROFILE"""
     global peer_table, profile_data, user_ip_map
+    user_id = msg.get("USER_ID")
+    if not user_id:
+        if verbose: print("[DEBUG] PROFILE missing USER_ID")
+        return
 
-    user_id, display_name, status = None, "Unknown", "No status"
-    for line in message.strip().splitlines():
-        line = line.strip()
-        if verbose:
-            print(f"[DEBUG] PROFILE line: {line}")
-        if line.startswith("USER_ID:"):
-            user_id = line.split(":", 1)[1].strip()
-        elif line.startswith("DISPLAY_NAME:"):
-            display_name = line.split(":", 1)[1].strip()
-        elif line.startswith("STATUS:"):
-            status = line.split(":", 1)[1].strip()
+    display_name = msg.get("DISPLAY_NAME", "Unknown")
+    status = msg.get("STATUS", "No status")
 
-    if user_id:
-        profile_data[user_id] = {
-            "display_name": display_name,
-            "status": status
-        }
-        peer_table[user_id] = time.time()
-        user_ip_map[user_id] = addr[0]
-        if verbose:
-            print(f"👤 PROFILE from {user_id} ({display_name}) at {addr[0]}")
-            print(f"[DEBUG] profile_data now: {list(profile_data.keys())}")
+    profile_data[user_id] = {
+        "display_name": display_name,
+        "status": status
+    }
+    peer_table[user_id] = time.time()
+    user_ip_map[user_id] = addr[0]
+    if verbose:
+        print(f"👤 PROFILE from {user_id} ({display_name}) at {addr[0]}")
 
-
-def handle_dm(message, addr, verbose):
+def handle_dm(msg, addr, verbose):
+    """Process TYPE: DM"""
     global dm_history, active_dm_user, user_ip_map, profile_data
-    
-    from_user, to_user, content, message_id = None, None, "", None
-    
-    # More robust parsing
-    lines = [line.strip() for line in message.strip().split("\n") if line.strip()]
-    for line in lines:
-        if line.startswith("FROM:"):
-            from_user = line.split(":", 1)[1].strip()
-        elif line.startswith("TO:"):
-            to_user = line.split(":", 1)[1].strip()
-        elif line.startswith("CONTENT:"):
-            content = line.split(":", 1)[1].strip()
-        elif line.startswith("MESSAGE_ID:"):
-            message_id = line.split(":", 1)[1].strip()
+
+    from_user = msg.get("FROM")
+    to_user = msg.get("TO")
+    content = msg.get("CONTENT", "")
+    message_id = msg.get("MESSAGE_ID")
 
     if verbose:
         print(f"[DEBUG] DM parsed - From: '{from_user}', To: '{to_user}', Content: '{content}'")
 
     if not from_user or not content:
         if verbose:
-            print(f"[DEBUG] Invalid DM - missing from_user or content")
+            print(f"[DEBUG] Invalid DM - missing FROM or CONTENT")
         return
 
     # Update sender's IP
     user_ip_map[from_user] = addr[0]
-    
+
     # Get display name, fallback to username part before @
     sender_display = profile_data.get(from_user, {}).get("display_name")
     if not sender_display:
-        # Extract username from user_id (before @)
         sender_display = from_user.split("@")[0] if "@" in from_user else from_user
-    
+
     # Initialize conversation history
     if from_user not in dm_history:
         dm_history[from_user] = []
-    
+
     # Add message to history
     message_entry = f"{sender_display}: {content}"
     dm_history[from_user].append(message_entry)
-    
+
     if verbose:
         print(f"[DEBUG] Added to history: {message_entry}")
         print(f"[DEBUG] Active DM user: {active_dm_user}, From user: {from_user}")
@@ -177,12 +164,18 @@ def handle_dm(message, addr, verbose):
         print(f"\n💬 New message from {sender_display}: {content}")
         print("> ", end="", flush=True)
 
-    # Send ACK if requested
+    # Send ACK if the message has a MESSAGE_ID
     if message_id:
         send_ack(message_id, addr, verbose)
 
 def send_ack(message_id, addr, verbose):
-    ack_msg = f"TYPE: ACK\nMESSAGE_ID: {message_id}\nSTATUS: RECEIVED\n\n"
+    """Send TYPE: ACK using build_message()"""
+    ack_fields = {
+        "TYPE": "ACK",
+        "MESSAGE_ID": message_id,
+        "STATUS": "RECEIVED",
+    }
+    ack_msg = build_message(ack_fields)
     try:
         ack_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         ack_sock.sendto(ack_msg.encode("utf-8"), addr)
@@ -193,38 +186,39 @@ def send_ack(message_id, addr, verbose):
         if verbose:
             print(f"❌ Failed to send ACK: {e}")
 
-def handle_post(message, addr, verbose):
+def handle_post(msg, addr, verbose):
+    """Process TYPE: POST"""
     global post_feed, profile_data
-    
-    user_id, content, timestamp, ttl = None, "", int(time.time()), 3600
-    for line in message.strip().split("\n"):
-        line = line.strip()
-        if line.startswith("USER_ID:"):
-            user_id = line.split(":", 1)[1].strip()
-        elif line.startswith("CONTENT:"):
-            content = line.split(":", 1)[1].strip()
-        elif line.startswith("TTL:"):
-            try:
-                ttl = int(line.split(":", 1)[1].strip())
-            except ValueError:
-                ttl = 3600
 
-    if user_id and content:
-        display_name = profile_data.get(user_id, {}).get("display_name", user_id.split("@")[0])
-        post = {
-            "user_id": user_id,
-            "display_name": display_name,
-            "content": content,
-            "timestamp": timestamp,
-            "ttl": ttl,
-            "likes": set()
-        }
-        post_feed.append(post)
+    user_id = msg.get("USER_ID")
+    content = msg.get("CONTENT", "")
+    ttl_raw = msg.get("TTL")
+
+    if not user_id or not content:
         if verbose:
-            print(f"< POST from {user_id}: {content}")
+            print("[DEBUG] POST missing USER_ID or CONTENT")
+        return
 
-# === Fixed main.py registration and DM sections ===
+    timestamp = int(time.time())
+    try:
+        ttl = int(ttl_raw) if ttl_raw is not None else 3600
+    except ValueError:
+        ttl = 3600
 
+    display_name = profile_data.get(user_id, {}).get("display_name", user_id.split("@")[0])
+    post = {
+        "user_id": user_id,
+        "display_name": display_name,
+        "content": content,
+        "timestamp": timestamp,
+        "ttl": ttl,
+        "likes": set()
+    }
+    post_feed.append(post)
+    if verbose:
+        print(f"< POST from {user_id}: {content}")
+
+# === (These helpers were in your snippet; keeping them here unchanged) ===
 def register_user():
     print("==== Welcome to LSNP ====")
     verbose_input = input("Enable Verbose Mode? (y/n): ").lower()
@@ -243,7 +237,7 @@ def register_user():
         temp_sock.close()
     except Exception:
         local_ip = "127.0.0.1"
-    
+
     # Create unique user ID with timestamp to avoid conflicts
     timestamp_suffix = str(int(time.time()))[-4:]  # Last 4 digits of timestamp
     user_id = f"{username}_{timestamp_suffix}@{local_ip}"
@@ -259,24 +253,24 @@ def register_user():
     }
 
 def _send_unicast(message, user_id, verbose=False):
-    """Send a unicast message to a specific user"""
+    """Send a unicast message to a specific user (expects a string already built)."""
     if user_id not in user_ip_map:
         if verbose:
             print(f"[DEBUG] No IP mapping for {user_id}")
         return False
-        
+
     ip = user_ip_map[user_id]
-    
+
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.settimeout(5.0)  # 5 second timeout
         sock.sendto(message.encode("utf-8"), (ip, 50999))
         sock.close()
-        
+
         if verbose:
             print(f"[DEBUG] Sent to {user_id} at {ip}")
         return True
-        
+
     except socket.timeout:
         print(f"❌ Timeout sending to {user_id} ({ip})")
         return False
@@ -284,11 +278,11 @@ def _send_unicast(message, user_id, verbose=False):
         print(f"❌ Failed to send to {user_id} ({ip}): {e}")
         return False
 
-# Updated DM section for main()
+# Updated DM section for main-like flow; uses build_message() now
 def handle_dm_chat(user, peers):
     """Handle the DM chat functionality"""
     global active_dm_user
-    
+
     print("\n==== Active Peers for DM ====")
     for idx, uid in enumerate(peers, 1):
         display = profile_data.get(uid, {}).get("display_name", uid.split("@")[0])
@@ -307,7 +301,7 @@ def handle_dm_chat(user, peers):
 
     target_display = profile_data.get(target_uid, {}).get("display_name", target_uid.split("@")[0])
     target_ip = user_ip_map.get(target_uid, "Unknown")
-    
+
     print(f"\n💬 Chat with {target_display} ({target_ip})")
     print("Commands: /exit (leave), /refresh (reload), /debug (info), /test (send test)")
     print("-" * 50)
@@ -325,15 +319,15 @@ def handle_dm_chat(user, peers):
 
     while True:
         try:
-            msg = input(f"[You → {target_display}]: ").strip()
+            msg_text = input(f"[You → {target_display}]: ").strip()
         except KeyboardInterrupt:
             break
-        
-        if msg == "/exit":
+
+        if msg_text == "/exit":
             print("👋 Exiting chat.\n")
             break
-            
-        elif msg == "/refresh":
+
+        elif msg_text == "/refresh":
             if target_uid in dm_history:
                 print("\n📜 Chat History:")
                 for message in dm_history[target_uid]:
@@ -341,8 +335,8 @@ def handle_dm_chat(user, peers):
             else:
                 print("📭 No messages yet.")
             continue
-            
-        elif msg == "/debug":
+
+        elif msg_text == "/debug":
             print(f"\n=== DEBUG INFO ===")
             print(f"Your ID: {user['user_id']}")
             print(f"Target ID: {target_uid}")
@@ -354,36 +348,37 @@ def handle_dm_chat(user, peers):
                 print(f"Message count: {len(dm_history[target_uid])}")
             print("==================\n")
             continue
-            
-        elif msg == "/test":
-            msg = f"Test message at {time.strftime('%H:%M:%S')}"
-            
-        if not msg:
+
+        elif msg_text == "/test":
+            msg_text = f"Test message at {time.strftime('%H:%M:%S')}"
+
+        if not msg_text:
             continue
 
-        # Create and send DM
+        # Create and send DM using build_message()
         message_id = f"msg_{int(time.time())}_{random.randint(1000,9999)}"
         timestamp = int(time.time())
-        
-        dm_msg = (
-            f"TYPE: DM\n"
-            f"FROM: {user['user_id']}\n"
-            f"TO: {target_uid}\n"
-            f"CONTENT: {msg}\n"
-            f"TIMESTAMP: {timestamp}\n"
-            f"MESSAGE_ID: {message_id}\n\n"
-        )
+
+        dm_fields = {
+            "TYPE": "DM",
+            "FROM": user["user_id"],
+            "TO": target_uid,
+            "CONTENT": msg_text,
+            "TIMESTAMP": timestamp,
+            "MESSAGE_ID": message_id,
+        }
+        dm_msg = build_message(dm_fields)
 
         if user["verbose"]:
-            print(f"[DEBUG] Sending: {msg}")
+            print(f"[DEBUG] Sending: {msg_text}")
 
         success = _send_unicast(dm_msg, target_uid, user["verbose"])
         if success:
             # Add to your own history
             if target_uid not in dm_history:
                 dm_history[target_uid] = []
-            dm_history[target_uid].append(f"{user['display_name']}: {msg}")
-            
+            dm_history[target_uid].append(f"{user['display_name']}: {msg_text}")
+
             # Show recent messages
             recent = dm_history[target_uid][-3:]
             print("─" * 30)
@@ -396,8 +391,5 @@ def handle_dm_chat(user, peers):
                 print("   → No IP address known for target user")
             else:
                 print(f"   → Target IP: {user_ip_map[target_uid]}")
-    
+
     active_dm_user = None
-    
-    
-# trying 5
