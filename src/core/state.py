@@ -26,6 +26,9 @@ class ApplicationState:
         # Game state
         self._ttt_invites: Dict[tuple, TicTacToeInvite] = {}
         self._ttt_games: Dict[str, TicTacToeGame] = {}
+
+        # File transfer listeners
+        self._incoming_file_listeners: list = []
     
     # Peer management
     def add_peer(self, peer: Peer) -> None:
