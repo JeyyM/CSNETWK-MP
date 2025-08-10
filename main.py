@@ -256,6 +256,7 @@ def main():
                         "TYPE": "POST",
                         "USER_ID": user["user_id"],
                         "CONTENT": content,
+                        "TIMESTAMP": timestamp,   # <-- add this
                         "TTL": ttl,
                         "MESSAGE_ID": message_id,
                         "TOKEN": token,
@@ -303,13 +304,45 @@ def main():
                             print("❌ Invalid post number.")
                             continue
 
-                        if sub.startswith("L"):
-                            post["likes"].add(user["user_id"])
-                            print("❤️ You liked the post.\n")
+                        if sub.startswith("L") or sub.startswith("U"):
+                            is_like = sub.startswith("L")
+                            action = "LIKE" if is_like else "UNLIKE"
 
-                        elif sub.startswith("U"):
-                            post["likes"].discard(user["user_id"])
-                            print("💔 You unliked the post.\n")
+                            # the post chosen
+                            post = post_keys.get(sub)
+                            if not post:
+                                print("❌ Invalid post number.")
+                                continue
+
+                            author_uid = post["user_id"]
+                            post_ts = post["timestamp"]
+                            ts_now = int(time.time())
+                            token = f"{user['user_id']}|{ts_now+3600}|broadcast"  # broadcast scope per RFC
+
+                            # Build LIKE/UNLIKE message to send to the post author
+                            like_fields = {
+                                "TYPE": "LIKE",
+                                "FROM": user["user_id"],
+                                "TO": author_uid,
+                                "POST_TIMESTAMP": post_ts,
+                                "ACTION": action,          # LIKE or UNLIKE
+                                "TIMESTAMP": ts_now,
+                                "TOKEN": token,
+                            }
+                            like_msg = build_message(like_fields)
+
+                            # Send unicast to author
+                            _send_unicast(like_msg, author_uid, user["verbose"])
+
+                            # Optimistic UI update
+                            if is_like:
+                                post["likes"].add(user["user_id"])
+                                print("❤️ You liked the post.\n")
+                            else:
+                                post["likes"].discard(user["user_id"])
+                                print("💔 You unliked the post.\n")
+                            continue
+
 
                 elif sub_choice == "B":
                     break
@@ -408,7 +441,7 @@ def main():
                     add_to_dm_history(target_uid, msg_text, is_outgoing=True, user_display_name=user["display_name"])
 
                     # Show the recent conversation including your sent message
-                    show_recent_messages(target_uid, count=5)
+                    show_recent_messages(target_uid, count=20)
 
                 else:
                     print(f"❌ Failed to send message to {target_display}")

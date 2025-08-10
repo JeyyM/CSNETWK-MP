@@ -74,6 +74,9 @@ def start_listener(verbose=False):
                 handle_dm(msg, addr, verbose)
             elif mtype == "POST":
                 handle_post(msg, addr, verbose)
+            elif mtype == "LIKE":
+                handle_like(msg, addr, verbose)
+
             elif mtype == "ACK":
                 if verbose:
                     print(f"✅ ACK received from {addr}")
@@ -187,19 +190,23 @@ def send_ack(message_id, addr, verbose):
             print(f"❌ Failed to send ACK: {e}")
 
 def handle_post(msg, addr, verbose):
-    """Process TYPE: POST"""
     global post_feed, profile_data
 
     user_id = msg.get("USER_ID")
     content = msg.get("CONTENT", "")
     ttl_raw = msg.get("TTL")
+    ts_raw = msg.get("TIMESTAMP")  # <-- read sender's timestamp
 
     if not user_id or not content:
         if verbose:
             print("[DEBUG] POST missing USER_ID or CONTENT")
         return
 
-    timestamp = int(time.time())
+    try:
+        timestamp = int(ts_raw) if ts_raw is not None else int(time.time())
+    except ValueError:
+        timestamp = int(time.time())
+
     try:
         ttl = int(ttl_raw) if ttl_raw is not None else 3600
     except ValueError:
@@ -210,13 +217,64 @@ def handle_post(msg, addr, verbose):
         "user_id": user_id,
         "display_name": display_name,
         "content": content,
-        "timestamp": timestamp,
+        "timestamp": timestamp,   # <-- store sender's timestamp
         "ttl": ttl,
         "likes": set()
     }
     post_feed.append(post)
     if verbose:
         print(f"< POST from {user_id}: {content}")
+
+def handle_like(msg, addr, verbose):
+    """
+    Process TYPE: LIKE
+    We update the local post object that matches (author == TO) and (timestamp == POST_TIMESTAMP).
+    Only the author is guaranteed to receive this (per RFC example), but if others do, it's harmless.
+    """
+    global post_feed, profile_data
+
+    liker_uid = msg.get("FROM")
+    author_uid = msg.get("TO")
+    post_ts_raw = msg.get("POST_TIMESTAMP")
+    action = msg.get("ACTION", "").upper()
+
+    # Basic validation
+    if not liker_uid or not author_uid or post_ts_raw is None or action not in {"LIKE", "UNLIKE"}:
+        if verbose:
+            print("[DEBUG] LIKE missing required fields")
+        return
+
+    try:
+        post_ts = int(post_ts_raw)
+    except ValueError:
+        if verbose:
+            print("[DEBUG] LIKE invalid POST_TIMESTAMP")
+        return
+
+    # Find the post locally
+    target = None
+    for p in post_feed:
+        if p.get("user_id") == author_uid and int(p.get("timestamp", -1)) == post_ts:
+            target = p
+            break
+
+    if not target:
+        if verbose:
+            print("[DEBUG] LIKE referenced post not found locally")
+        return
+
+    # Update the likes set
+    if action == "LIKE":
+        target["likes"].add(liker_uid)
+    else:
+        target["likes"].discard(liker_uid)
+
+    # Friendly output (non-verbose printing per RFC suggests a short line)
+    liker_name = profile_data.get(liker_uid, {}).get("display_name", liker_uid.split("@")[0])
+    author_name = profile_data.get(author_uid, {}).get("display_name", author_uid.split("@")[0])
+    if verbose or author_uid in (profile_data.keys()):  # print for author or when verbose
+        verb = "likes" if action == "LIKE" else "unliked"
+        print(f"💌 {liker_name} {verb} your post (ts={post_ts}).")
 
 # === (These helpers were in your snippet; keeping them here unchanged) ===
 def register_user():
