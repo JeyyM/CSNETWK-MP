@@ -534,8 +534,15 @@ def main():
         elif choice == "6":
             # === Tic Tac Toe Menu ===
             def render_board(b):
-                def c(i): return b[i] if b[i] else " "
-                print(f"\n {c(0)} | {c(1)} | {c(2)}\n-----------\n {c(3)} | {c(4)} | {c(5)}\n-----------\n {c(6)} | {c(7)} | {c(8)}\n")
+                # numbered cells for empties
+                def c(i): return b[i] if b[i] else str(i)
+                print(
+                    f"\n {c(0)} | {c(1)} | {c(2)}\n"
+                    "---------\n"
+                    f" {c(3)} | {c(4)} | {c(5)}\n"
+                    "---------\n"
+                    f" {c(6)} | {c(7)} | {c(8)}\n"
+                )
 
             while True:
                 now = time.time()

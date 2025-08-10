@@ -28,12 +28,15 @@ def get_board(gameid: str):
     if gameid not in ttt_games:
         return "No such game."
 
-    board = ttt_games[gameid]["board"]
-    rows = []
-    for i in range(0, 9, 3):
-        row = [board[i+j] if board[i+j] else "." for j in range(3)]
-        rows.append(" | ".join(row))
-    return "\n---------\n".join(rows)
+    b = ttt_games[gameid]["board"]
+    def c(i): return b[i] if b[i] else str(i)
+    return (
+        f" {c(0)} | {c(1)} | {c(2)}\n"
+        "---------\n"
+        f" {c(3)} | {c(4)} | {c(5)}\n"
+        "---------\n"
+        f" {c(6)} | {c(7)} | {c(8)}"
+    )
 
 def start_game_invite(my_uid: str, opp_uid: str, symbol: str, token_game: str, verbose=False):
     symbol = symbol.upper()
