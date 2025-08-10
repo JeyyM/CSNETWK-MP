@@ -90,20 +90,29 @@ def start_listener(verbose=False):
         sock.close()
 
 def handle_ping(msg, addr, verbose):
-    """Process TYPE: PING"""
-    global peer_table, user_ip_map
+    global peer_table, user_ip_map, profile_data
     user_id = msg.get("USER_ID")
     if not user_id:
         if verbose: print("[DEBUG] PING missing USER_ID")
         return
-
     peer_table[user_id] = time.time()
     user_ip_map[user_id] = addr[0]
     if verbose:
         print(f"📡 PING from {user_id} at {addr[0]}")
 
+    # respond with our PROFILE (unicast) so the sender learns our IP
+    me = None
+    # Try to find "me" from any known profile that matches our IP-less identity.
+    # If you keep your own "current user" dict, replace this block with that.
+    for uid, pdata in profile_data.items():
+        if pdata.get("is_me"):
+            me = (uid, pdata.get("display_name","Me"), pdata.get("status",""))
+            break
+    # Fall back: if we don't track "is_me", we can send a minimal echo PROFILE with our socket's IP
+    if me:
+        _send_profile_unicast((addr[0], 50999), me[0], me[1], me[2], verbose)
+
 def handle_profile(msg, addr, verbose):
-    """Process TYPE: PROFILE"""
     global peer_table, profile_data, user_ip_map
     user_id = msg.get("USER_ID")
     if not user_id:
@@ -121,6 +130,11 @@ def handle_profile(msg, addr, verbose):
     user_ip_map[user_id] = addr[0]
     if verbose:
         print(f"👤 PROFILE from {user_id} ({display_name}) at {addr[0]}")
+
+    # Be friendly: send our PROFILE back (unicast)
+    # (Same note as above: if you have your own user dict, use it here.)
+    # Remove this block later if you add a proper "current user" context to listener.
+    # For now we skip because listener doesn't know "me" here.
 
 def handle_dm(msg, addr, verbose):
     """Process TYPE: DM"""
@@ -335,6 +349,24 @@ def _send_unicast(message, user_id, verbose=False):
     except Exception as e:
         print(f"❌ Failed to send to {user_id} ({ip}): {e}")
         return False
+
+def _send_profile_unicast(to_addr, user_id, display_name, status, verbose=False):
+    try:
+        fields = {
+            "TYPE": "PROFILE",
+            "USER_ID": user_id,
+            "DISPLAY_NAME": display_name,
+            "STATUS": status,
+        }
+        msg = build_message(fields).encode("utf-8")
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.sendto(msg, to_addr)
+        s.close()
+        if verbose:
+            print(f"[DEBUG] Sent PROFILE (unicast) to {to_addr}")
+    except Exception as e:
+        if verbose:
+            print(f"[DEBUG] Failed to send unicast PROFILE to {to_addr}: {e}")
 
 # Updated DM section for main-like flow; uses build_message() now
 def handle_dm_chat(user, peers):

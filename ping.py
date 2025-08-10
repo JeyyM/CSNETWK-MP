@@ -25,16 +25,19 @@ def send_ping(user_id, interval=10, verbose=False):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
-    broadcast_ip = get_broadcast_ip()
+    b1 = get_broadcast_ip()
+    b2 = "255.255.255.255"
     if verbose:
-        print(f"[INFO] Using broadcast address: {broadcast_ip}")
+        print(f"[INFO] Using broadcast addresses: {b1}, {b2}")
 
     while True:
-        msg = build_ping(user_id)
-        try:
-            sock.sendto(msg.encode("utf-8"), (broadcast_ip, PORT))
-            if verbose:
-                print(f"[PING] Sent ping to {broadcast_ip}")
-        except Exception as e:
-            print(f"❌ Failed to send ping: {e}")
+        msg = build_ping(user_id).encode("utf-8")
+        for bcast in {b1, b2}:
+            try:
+                sock.sendto(msg, (bcast, PORT))
+                if verbose:
+                    print(f"[PING] Sent ping to {bcast}")
+            except Exception as e:
+                print(f"❌ Failed to send ping to {bcast}: {e}")
         time.sleep(interval)
+

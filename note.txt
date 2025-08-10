@@ -1,0 +1,3 @@
+apparently might need to do this?
+
+New-NetFirewallRule -DisplayName "LSNP UDP 50999" -Direction Inbound -Action Allow -Protocol UDP -LocalPort 50999

@@ -3,6 +3,7 @@ import time
 import socket
 import os
 import uuid
+import re
 
 from protocol import build_message  # ✅ ensure consistent RFC formatting (\n\n)
 from shared_state import dm_history, active_dm_user
@@ -14,20 +15,28 @@ following = set()
 def clear_console():
     os.system("cls" if os.name == "nt" else "clear")
 
+def _broadcast_to_all(sock, data_bytes):
+    # Try calculated subnet broadcast and the limited broadcast
+    b1 = get_broadcast_ip()
+    b2 = "255.255.255.255"
+    for bcast in {b1, b2}:  # set() avoids duplicates
+        try:
+            sock.sendto(data_bytes, (bcast, 50999))
+        except Exception as e:
+            print(f"⚠️ Broadcast to {bcast} failed: {e}")
+
 def broadcast_profile(user):
-    """Broadcast TYPE: PROFILE using build_message()."""
     fields = {
         "TYPE": "PROFILE",
         "USER_ID": user["user_id"],
         "DISPLAY_NAME": user["display_name"],
         "STATUS": user["status"],
     }
-    profile_msg = build_message(fields)
+    profile_msg = build_message(fields).encode("utf-8")
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    broadcast_ip = get_broadcast_ip()
-    sock.sendto(profile_msg.encode("utf-8"), (broadcast_ip, 50999))
+    _broadcast_to_all(sock, profile_msg)   # <-- send to both
     sock.close()
 
 def register_user():
@@ -60,9 +69,29 @@ def register_user():
         "ip": ip
     }
 
+# --- in main.py ---
+
+import re
+
+def _ip_from_uid(uid: str) -> str | None:
+    # Extract IPv4 after '@' if present, quick sanity check
+    if "@" not in uid:
+        return None
+    ip = uid.split("@", 1)[1].strip()
+    return ip if re.match(r"^\d{1,3}(\.\d{1,3}){3}$", ip) else None
+
 def _send_unicast(message, user_id, verbose=False):
-    """Send a unicast message to a specific user."""
-    ip = user_ip_map.get(user_id, "127.0.0.1")
+    """Send a unicast message to a specific user, with IP fallback from user_id."""
+    ip = user_ip_map.get(user_id)
+    if not ip:
+        ip = _ip_from_uid(user_id)  # <-- fallback when we haven't seen their PROFILE/PING
+        if verbose and ip:
+            print(f"[DEBUG] Using IP parsed from UID ({user_id}) -> {ip}")
+    if not ip:
+        if verbose:
+            print(f"[DEBUG] No IP mapping and no @IP in UID for {user_id}")
+        return False
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         sock.sendto(message.encode("utf-8"), (ip, 50999))
@@ -74,6 +103,7 @@ def _send_unicast(message, user_id, verbose=False):
         return False
     finally:
         sock.close()
+
 
 def show_menu():
     print("==== LSNP CLI Menu ====\n")
@@ -267,9 +297,9 @@ def main():
 
                     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-                    broadcast_ip = get_broadcast_ip()
-                    sock.sendto(post_msg.encode("utf-8"), (broadcast_ip, 50999))
+                    _broadcast_to_all(sock, post_msg.encode("utf-8"))  # <-- send to both broadcasts
                     sock.close()
+
 
                     print("✅ Post broadcasted. Your message is now visible to followers.\n")
 
