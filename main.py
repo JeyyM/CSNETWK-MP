@@ -10,6 +10,7 @@ from shared_state import dm_history, active_dm_user
 from listener import start_listener, peer_table, profile_data, user_ip_map
 from ping import send_ping, get_broadcast_ip
 from game_client import start_game_invite, send_move, get_board
+from file_client import send_file
 
 from state import ttt_invites, ttt_games
 from game_client import start_game_invite, send_move
@@ -529,6 +530,36 @@ def main():
                         print("   No IP address known for target. Wait for their ping/profile.")
                     else:
                         print(f"   Target IP: {user_ip_map[target_uid]}")
+
+        elif choice == "5":
+            # Send a File
+            now = time.time()
+            peers = [uid for uid, last_seen in peer_table.items() if now - last_seen < 60 and uid != user["user_id"]]
+
+            if not peers:
+                print("No peers available to send a file.\n")
+                continue
+
+            print("\n==== Active Peers for File Transfer ====")
+            for idx, uid in enumerate(peers, 1):
+                display = profile_data.get(uid, {}).get("display_name", uid.split("@")[0])
+                print(f"[{idx}] {display} ({uid})")
+            print("=============================\n")
+
+            selected = input("Select peer number: ").strip()
+            try:
+                target_uid = peers[int(selected) - 1]
+            except (IndexError, ValueError):
+                print("❌ Invalid selection.\n")
+                continue
+
+            file_path = input("Enter full path to the file: ").strip()
+            if not file_path:
+                print("❌ No file path entered.\n")
+                continue
+
+            send_file(user["user_id"], target_uid, file_path, verbose=user["verbose"])
+
 
 
         elif choice == "6":

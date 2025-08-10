@@ -13,6 +13,7 @@ from handlers.like_handler import handle_like
 from handlers.tictactoe_handler import (
     handle_tictactoe_invite, handle_tictactoe_move, handle_tictactoe_result
 )
+from handlers.file_handler import handle_file_offer, handle_file_chunk  # NEW
 
 PORT = 50999
 BUFFER_SIZE = 65535
@@ -77,12 +78,15 @@ def start_listener(verbose: bool = False):
                 handle_tictactoe_move(msg, addr, sock, verbose)
             elif mtype == "TICTACTOE_RESULT":
                 handle_tictactoe_result(msg, addr, sock, verbose)
-
+            elif mtype == "FILE_OFFER":  # NEW
+                handle_file_offer(msg, addr, verbose)
+            elif mtype == "FILE_CHUNK":  # NEW
+                handle_file_chunk(msg, addr, verbose)
 
     except KeyboardInterrupt:
         print("\n[INFO] Listener stopped.")
     finally:
         sock.close()
 
-# Re-export these so main.py's existing imports keep working
+# Re-export for main.py
 __all__ = ["start_listener", "peer_table", "profile_data", "user_ip_map", "post_feed"]
