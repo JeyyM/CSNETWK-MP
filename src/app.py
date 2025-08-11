@@ -76,6 +76,7 @@ class LSNPApplication:
         ts = int(time.time())
         presence_token = f"{self.user.user_id}|{ts + 3600}|presence"  # 1h session
         core_state.app_state.set_presence_token(presence_token)
+        core_state.app_state.set_local_user(self.user.user_id)
         
         # Initialize services
         self.user_service = UserService(self.network_manager)

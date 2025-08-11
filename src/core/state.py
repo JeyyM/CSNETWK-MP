@@ -23,6 +23,7 @@ class ApplicationState:
         self._post_feed: List[Post] = []
         self._dm_history: Dict[str, List[DirectMessage]] = {}
         self._active_dm_user: Optional[str] = None
+        self._local_user_id: Optional[str] = None
 
         # Game state
         self._ttt_invites: Dict[tuple, TicTacToeInvite] = {}
@@ -237,12 +238,26 @@ class ApplicationState:
             return None
     
     # Direct message management
-    def add_dm(self, message: DirectMessage) -> None:
-        """Add a direct message."""
+    def set_local_user(self, user_id: str) -> None:
         with self._lock:
-            if message.from_user not in self._dm_history:
-                self._dm_history[message.from_user] = []
-            self._dm_history[message.from_user].append(message)
+            self._local_user_id = user_id
+    
+def add_dm(self, message: DirectMessage) -> None:
+    """Add a direct message, storing it under the conversation partner's user_id."""
+    with self._lock:
+        if self._local_user_id:
+            if message.from_user == self._local_user_id:
+                key = message.to_user           # outgoing -> store under recipient
+            elif message.to_user == self._local_user_id:
+                key = message.from_user         # incoming -> store under sender
+            else:
+                key = message.from_user         # fallback if we don't recognize either side
+        else:
+            key = message.from_user             # backward-compatible fallback
+
+        if key not in self._dm_history:
+            self._dm_history[key] = []
+        self._dm_history[key].append(message)
     
     def get_dm_history(self, user_id: str) -> List[DirectMessage]:
         """Get DM history with a user."""
