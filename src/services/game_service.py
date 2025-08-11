@@ -153,7 +153,69 @@ class GameService:
         }
         move_msg = build_message(fields)
         return self.network_manager.send_unicast(move_msg, opponent_id)
+        
+    def invite_with_first_move(self, opponent_id: str, position: int, user: User, game_id: str | None = None) -> bool:
+        """Inviter (X) sends TICTACTOE_INVITE and immediately the first MOVE."""
+        # generate game id if not provided (RFC suggests g0..g255)
+        if not game_id:
+            game_id = f"g{random.randint(0,255)}"
 
+        # Create local game skeleton
+        game = TicTacToeGame(game_id=game_id)
+        game.players = {
+            Symbol.X: user.user_id,
+            Symbol.O: opponent_id
+        }
+        game.state = GameState.PENDING
+        app_state.add_ttt_game(game)
+
+        # --- Send INVITE first ---
+        ts_inv = int(time.time())
+        invite_mid = uuid.uuid4().hex[:8]
+        invite_token = f"{user.user_id}|{ts_inv+3600}|game"
+        invite_fields = {
+            "TYPE": "TICTACTOE_INVITE",
+            "FROM": user.user_id,
+            "TO": opponent_id,
+            "GAMEID": game_id,
+            "MESSAGE_ID": invite_mid,
+            "SYMBOL": "X",                     # inviter plays X
+            "TIMESTAMP": ts_inv,
+            "TOKEN": invite_token,
+        }
+        invite_msg = build_message(invite_fields)
+        if not self.network_manager.send_unicast(invite_msg, opponent_id):
+            return False
+
+        # --- Apply the first move locally and send MOVE ---
+        # Ensure it's X's turn locally
+        if game.next_symbol != Symbol.X:
+            game.next_symbol = Symbol.X
+
+        if not game.is_valid_move(position):
+            if getattr(self.network_manager, "verbose", False):
+                print(f"[GAME] Invalid first position {position} for {game_id}")
+            return False
+
+        game.make_move(position, Symbol.X)
+        game.state = GameState.ACTIVE
+
+        ts_mv = int(time.time())
+        move_mid = uuid.uuid4().hex[:8]
+        move_token = f"{user.user_id}|{ts_mv+3600}|game"
+        move_fields = {
+            "TYPE": "TICTACTOE_MOVE",
+            "FROM": user.user_id,
+            "TO": opponent_id,
+            "GAMEID": game_id,
+            "POSITION": position,
+            "SYMBOL": "X",
+            "MESSAGE_ID": move_mid,
+            "TIMESTAMP": ts_mv,
+            "TOKEN": move_token,
+        }
+        move_msg = build_message(move_fields)
+        return self.network_manager.send_unicast(move_msg, opponent_id)
     
     def accept_invite(self, invite: TicTacToeInvite, first_move: int, user: User) -> bool:
         """Accept a game invite with first move."""

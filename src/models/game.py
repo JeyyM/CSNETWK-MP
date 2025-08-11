@@ -91,16 +91,16 @@ class TicTacToeGame:
     def is_game_over(self) -> bool:
         """Check if the game is over."""
         return self.check_winner() is not None or self.is_draw()
-    
+
     def render_board(self) -> str:
-        """Render the board as a string."""
+        """Render the board with numbers for empty cells and symbols where taken."""
         def cell_char(i: int) -> str:
-            return self.board[i].value if self.board[i] != Symbol.EMPTY else " "
-        
+            return self.board[i].value if self.board[i] != Symbol.EMPTY else str(i)
+
         return f"""
- {cell_char(0)} | {cell_char(1)} | {cell_char(2)}
------------
- {cell_char(3)} | {cell_char(4)} | {cell_char(5)}
------------
- {cell_char(6)} | {cell_char(7)} | {cell_char(8)}
-"""
+    {cell_char(0)} | {cell_char(1)} | {cell_char(2)}
+    -----------
+    {cell_char(3)} | {cell_char(4)} | {cell_char(5)}
+    -----------
+    {cell_char(6)} | {cell_char(7)} | {cell_char(8)}
+    """
