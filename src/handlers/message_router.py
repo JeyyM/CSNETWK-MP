@@ -10,7 +10,9 @@ from .game_handler import GameHandler
 from .group_handler import GroupHandler
 from ..network.client import NetworkManager
 from ..handlers.file_handler import handle_file_message
-from ..utils.dedupe import seen_before
+
+from ..core.state import app_state
+from ..utils.auth import require_valid_token
 
 class MessageRouter:
     """Routes incoming messages to appropriate handlers."""
@@ -47,24 +49,43 @@ class MessageRouter:
             "FILE_REJECT": handle_file_message,
             "FILE_CHUNK": handle_file_message,
             "FILE_RECEIVED": handle_file_message,
+            
+            "REVOKE": self._handle_revoke
         }
     
     def route_message(self, msg: dict, addr: tuple) -> None:
         message_type = msg.get("TYPE", "")
-        
+
+        # File shortcuts (optional — token check still happens below if mapped)
         if message_type.startswith("FILE_"):
+            # Enforce token/gating for FILE_* here before forwarding
+            if not require_valid_token(msg, addr, self.verbose):
+                return
             handle_file_message(msg, addr)
             return
-        
+
+        # Central token check for all other secured types
+        if not require_valid_token(msg, addr, self.verbose):
+            return
+
         handler = self.handlers.get(message_type)
         if handler:
             handler(msg, addr)
         else:
             if self.verbose:
                 print(f"⚠️ Unknown message type: {message_type}")
-
     
     def _handle_ack(self, msg: dict, addr: tuple) -> None:
         """Handle ACK messages."""
         if self.verbose:
             print(f"✅ ACK received from {addr}")
+
+    def _handle_revoke(self, msg: dict, addr: tuple) -> None:
+        tok = msg.get("TOKEN")
+        if not tok:
+            if self.verbose:
+                print("[REVOKE] Missing TOKEN")
+            return
+        app_state.revoke_token(tok)
+        if self.verbose:
+            print("[REVOKE] Recorded revocation.")

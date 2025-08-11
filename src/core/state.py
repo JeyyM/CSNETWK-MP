@@ -35,6 +35,70 @@ class ApplicationState:
         # File offer listeners (UI callbacks)
         self._incoming_file_listeners: List[Callable[[str, dict], None]] = []
         self._pending_acks: Dict[str, threading.Event] = {}
+        
+        self._revoked_tokens: Dict[str, float] = {}  # token -> expiry_ts
+        self._issued_tokens: Set[str] = set()       # tokens we've sent
+
+    # Revoking
+    def _sweep_revoked(self) -> None:
+        now = time.time()
+        to_del = [tok for tok, exp in self._revoked_tokens.items() if exp <= now]
+        for tok in to_del:
+            self._revoked_tokens.pop(tok, None)
+
+    def register_issued_token(self, token: str) -> None:
+        with self._lock:
+            self._issued_tokens.add(token)
+
+    def parse_token(self, token: str):
+        """Return (user_id, expiry_ts:int, scope) or None if malformed."""
+        try:
+            user_id, exp_str, scope = token.split("|", 3)[:3]
+            return user_id, int(exp_str), scope
+        except Exception:
+            return None
+
+    def get_revocable_tokens(self) -> list[str]:
+        """Tokens we issued that are still in the future (worth revoking)."""
+        now = int(time.time())
+        with self._lock:
+            out = []
+            for tok in self._issued_tokens:
+                parsed = self.parse_token(tok)
+                if parsed and parsed[1] > now:
+                    out.append(tok)
+            return out
+
+    def revoke_token(self, token: str) -> None:
+        parsed = self.parse_token(token)
+        if not parsed:
+            return
+        _, expiry, _ = parsed
+        with self._lock:
+            self._revoked_tokens[token] = float(expiry)
+
+    def is_token_revoked(self, token: str) -> bool:
+        now = time.time()
+        with self._lock:
+            # sweep expired revocations
+            for t in [t for t,e in self._revoked_tokens.items() if e <= now]:
+                self._revoked_tokens.pop(t, None)
+            return token in self._revoked_tokens
+
+    def validate_token(self, token: str, expected_scope: str) -> tuple[bool, str]:
+        """Check (not expired, scope matches, not revoked). Returns (ok, reason)."""
+        parsed = self.parse_token(token)
+        if not parsed:
+            return False, "malformed"
+        user_id, expiry, scope = parsed
+        now = int(time.time())
+        if now > expiry:
+            return False, "expired"
+        if scope != expected_scope:
+            return False, "scope_mismatch"
+        if self.is_token_revoked(token):
+            return False, "revoked"
+        return True, ""
     
     # Peer management
     def add_peer(self, peer: Peer) -> None:

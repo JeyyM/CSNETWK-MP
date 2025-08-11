@@ -2,6 +2,7 @@
 import threading
 import time
 from typing import Optional
+import sys
 
 from .models.user import User
 from .network.client import NetworkManager
@@ -22,6 +23,8 @@ from .utils.setup import create_user_profile
 from .services.file_service import FileService
 from .ui.file_menu import FileMenu
 from .core import state as core_state
+
+from .network.protocol import build_message
 
 class LSNPApplication:
     """Main LSNP application controller."""
@@ -155,7 +158,6 @@ class LSNPApplication:
                 elif choice == "5":
                     self.file_menu.show_file_menu()
 
-                
                 elif choice == "6":
                     self.game_menu.show_game_menu()
                 
@@ -164,8 +166,8 @@ class LSNPApplication:
                     self._show_additional_profile_info()
                 
                 elif choice == "8":
-                    print("\nExiting LSNP...\n")
-                    self.stop()
+                    print("\nLogging out and exiting LSNP...\n")
+                    self.logout()   # broadcasts REVOKEs, stops services, exits process
                     break
                 
                 else:
@@ -211,6 +213,32 @@ class LSNPApplication:
         from_user = offer.get("from", "").split("@")[0]
         print(f"\n📂 Incoming file offer {fileid} from {from_user}: {offer.get('filename')} ({offer.get('filesize')} bytes)")
         print("Open Files menu to accept or reject.")
+
+    def logout(self) -> None:
+        """Broadcast REVOKE for all still-valid tokens we issued, then stop and exit."""
+        # Stop periodic traffic first so we don’t keep announcing ourselves
+        if self.ping_service:
+            self.ping_service.stop_ping_service()
+
+        # Collect tokens we’ve issued that haven’t expired yet
+        tokens = core_state.app_state.get_revocable_tokens() if hasattr(core_state.app_state, "get_revocable_tokens") else []
+
+        if not tokens and self.user and self.user.verbose:
+            print("[LOGOUT] No active tokens to revoke (or token tracking not enabled).")
+
+        # Broadcast a REVOKE for each token
+        for tok in tokens:
+            fields = {"TYPE": "REVOKE", "TOKEN": tok}
+            msg = build_message(fields)
+            # best-effort: no ACKs for REVOKE per RFC; just broadcast
+            self.network_manager.send_broadcast(msg)
+
+        if self.user and self.user.verbose:
+            print(f"[LOGOUT] Sent REVOKE for {len(tokens)} token(s). Exiting...")
+
+        # Stop listener and exit
+        self.stop()
+        sys.exit(0)
 
 
 

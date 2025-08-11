@@ -5,7 +5,7 @@ from typing import Optional
 
 from .protocol import build_message
 from ..core.state import app_state
-
+from .protocol import parse_message
 
 PORT = 50999
 
@@ -47,6 +47,16 @@ class NetworkManager:
     def __init__(self, verbose: bool = False):
         self.verbose = verbose
     
+    def _auto_register_token(self, message: str) -> None:
+        """Parse outgoing message and remember its TOKEN for later revoke."""
+        try:
+            fields = parse_message(message)
+            tok = fields.get("TOKEN")
+            if tok:
+                app_state.register_issued_token(tok)
+        except Exception:
+            pass
+    
     def send_unicast(self, message: str, user_id: str) -> bool:
         """Send a unicast message to a specific user."""
         ip = app_state.get_peer_ip(user_id)
@@ -62,6 +72,7 @@ class NetworkManager:
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
+            self._auto_register_token(message)
             sock.sendto(message.encode("utf-8"), (ip, PORT))
             if self.verbose:
                 print(f"[DEBUG] Sent message to {user_id} at {ip}")
@@ -82,6 +93,7 @@ class NetworkManager:
         
         for bcast in broadcast_addresses:
             try:
+                self._auto_register_token(message)
                 sock.sendto(message.encode("utf-8"), (bcast, PORT))
                 if self.verbose:
                     print(f"[DEBUG] Broadcast sent to {bcast}")

@@ -1,4 +1,5 @@
 """User management service."""
+import sys
 import time
 import uuid
 from typing import List, Optional
@@ -84,3 +85,22 @@ class UserService:
     def get_peer(self, user_id: str) -> Optional[Peer]:
         """Get a specific peer."""
         return app_state.get_peer(user_id)
+
+    def logout(self) -> None:
+        """Broadcast REVOKE for every still-valid token we issued, then exit."""
+        tokens = app_state.get_revocable_tokens()
+        if not tokens and getattr(self.network_manager, "verbose", False):
+            print("[LOGOUT] No active tokens to revoke.")
+
+        for tok in tokens:
+            fields = {
+                "TYPE": "REVOKE",
+                "TOKEN": tok,
+            }
+            msg = build_message(fields)
+            self.network_manager.send_broadcast(msg)
+
+        if getattr(self.network_manager, "verbose", False):
+            print(f"[LOGOUT] Sent REVOKE for {len(tokens)} token(s). Exiting...")
+
+        sys.exit(0)
