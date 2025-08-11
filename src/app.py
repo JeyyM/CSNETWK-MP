@@ -271,7 +271,7 @@ class LSNPApplication:
         msg = build_message(fields)
         self.network_manager.send_broadcast(msg)
         if self.user.verbose:
-            print(f"[TEST] Sent POST with {label} token → check receiver logs.")
+            print(f"[TEST] Sent POST with {label} token.")
 
     def _make_expired_token(self) -> None:
         """Craft a broadcast token that is already expired and send a POST with it."""

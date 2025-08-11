@@ -59,7 +59,7 @@ class DirectMessageMenu:
         self._display_dm_history(target_peer)
         
         while True:
-            msg_text = input(f"[You → {target_peer.display_name}]: ").strip()
+            msg_text = input(f"[You -> {target_peer.display_name}]: ").strip()
             
             if msg_text == "/exit":
                 print("Exiting DM chat.\n")
