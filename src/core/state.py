@@ -35,6 +35,102 @@ class ApplicationState:
         # File offer listeners (UI callbacks)
         self._incoming_file_listeners: List[Callable[[str, dict], None]] = []
         self._pending_acks: Dict[str, threading.Event] = {}
+        
+        self._suppressed_peers: Dict[str, float] = {}  # user_id -> suppress_until_ts
+        self._presence_token: Optional[str] = None
+        self._revoked_tokens: Dict[str, float] = {}  # token -> expiry_ts
+        self._issued_tokens: Set[str] = set()       # tokens we've sent
+
+        self._local_user_id: Optional[str] = None
+
+    # Revoking
+    def _sweep_suppressed(self) -> None:
+        now = time.time()
+        expired = [u for u, ts in self._suppressed_peers.items() if ts <= now]
+        for u in expired:
+            self._suppressed_peers.pop(u, None)
+
+    def suppress_peer(self, user_id: str, seconds: int = 60) -> None:
+        """Hide a peer from active lists for N seconds."""
+        with self._lock:
+            self._suppressed_peers[user_id] = time.time() + seconds
+
+    def unsuppress_peer(self, user_id: str) -> None:
+        with self._lock:
+            self._suppressed_peers.pop(user_id, None)
+    
+    def get_active_peers(self, exclude_user_id: Optional[str] = None) -> List[Peer]:
+        """Get all active (recent) peers, excluding suppressed ones."""
+        with self._lock:
+            self._sweep_suppressed()
+            now = time.time()
+            peers = [
+                p for p in self._peers.values()
+                if p.is_active and not (p.user_id in self._suppressed_peers and self._suppressed_peers[p.user_id] > now)
+            ]
+            if exclude_user_id:
+                peers = [p for p in peers if p.user_id != exclude_user_id]
+            return peers
+
+    def _sweep_revoked(self) -> None:
+        now = time.time()
+        to_del = [tok for tok, exp in self._revoked_tokens.items() if exp <= now]
+        for tok in to_del:
+            self._revoked_tokens.pop(tok, None)
+
+    def register_issued_token(self, token: str) -> None:
+        with self._lock:
+            self._issued_tokens.add(token)
+
+    def parse_token(self, token: str):
+        """Return (user_id, expiry_ts:int, scope) or None if malformed."""
+        try:
+            user_id, exp_str, scope = token.split("|", 3)[:3]
+            return user_id, int(exp_str), scope
+        except Exception:
+            return None
+
+    def get_revocable_tokens(self) -> list[str]:
+        """Tokens we issued that are still in the future (worth revoking)."""
+        now = int(time.time())
+        with self._lock:
+            out = []
+            for tok in self._issued_tokens:
+                parsed = self.parse_token(tok)
+                if parsed and parsed[1] > now:
+                    out.append(tok)
+            return out
+
+    def revoke_token(self, token: str) -> None:
+        parsed = self.parse_token(token)
+        if not parsed:
+            return
+        _, expiry, _ = parsed
+        with self._lock:
+            self._revoked_tokens[token] = float(expiry)
+
+    def is_token_revoked(self, token: str) -> bool:
+        now = time.time()
+        with self._lock:
+            # sweep expired revocations
+            for t in [t for t,e in self._revoked_tokens.items() if e <= now]:
+                self._revoked_tokens.pop(t, None)
+            return token in self._revoked_tokens
+
+    def validate_token(self, token: str, expected_scope: str) -> tuple[bool, str]:
+        """Check (not expired, scope matches, not revoked). Returns (ok, reason)."""
+        parsed = self.parse_token(token)
+        if not parsed:
+            return False, "malformed"
+        user_id, expiry, scope = parsed
+        now = int(time.time())
+        if now > expiry:
+            return False, "expired"
+        if scope != expected_scope:
+            return False, "scope_mismatch"
+        if self.is_token_revoked(token):
+            return False, "revoked"
+        return True, ""
     
     # Peer management
     def add_peer(self, peer: Peer) -> None:
@@ -48,14 +144,6 @@ class ApplicationState:
         with self._lock:
             return self._peers.get(user_id)
     
-    def get_active_peers(self, exclude_user_id: Optional[str] = None) -> List[Peer]:
-        """Get all active peers."""
-        with self._lock:
-            peers = [p for p in self._peers.values() if p.is_active]
-            if exclude_user_id:
-                peers = [p for p in peers if p.user_id != exclude_user_id]
-            return peers
-    
     def get_peer_ip(self, user_id: str) -> Optional[str]:
         """Get IP address for a user."""
         with self._lock:
@@ -65,6 +153,20 @@ class ApplicationState:
         """Update IP address for a user."""
         with self._lock:
             self._user_ip_map[user_id] = ip
+    
+    def set_presence_token(self, token: str) -> None:
+        with self._lock:
+            self._presence_token = token
+            self._issued_tokens.add(token)  # so you can revoke it later
+
+    def get_presence_token(self) -> Optional[str]:
+        with self._lock:
+            return self._presence_token
+
+    def remove_peer(self, user_id: str) -> None:
+        with self._lock:
+            self._peers.pop(user_id, None)
+            self._user_ip_map.pop(user_id, None)
     
     # Following management
     def follow_user(self, user_id: str) -> None:
@@ -129,12 +231,27 @@ class ApplicationState:
             return None
     
     # Direct message management
-    def add_dm(self, message: DirectMessage) -> None:
-        """Add a direct message."""
+    def set_local_user(self, user_id: str) -> None:
         with self._lock:
-            if message.from_user not in self._dm_history:
-                self._dm_history[message.from_user] = []
-            self._dm_history[message.from_user].append(message)
+            self._local_user_id = user_id
+
+    def add_dm(self, message: DirectMessage) -> None:
+        """Store DM under the other party's user_id so a single thread shows both directions."""
+        with self._lock:
+            if self._local_user_id:
+                if message.from_user == self._local_user_id:
+                    key = message.to_user        # outgoing -> store under recipient
+                elif message.to_user == self._local_user_id:
+                    key = message.from_user      # incoming -> store under sender
+                else:
+                    key = message.from_user      # fallback
+            else:
+                key = message.from_user          # legacy fallback
+
+            if key not in self._dm_history:
+                self._dm_history[key] = []
+            self._dm_history[key].append(message)
+
     
     def get_dm_history(self, user_id: str) -> List[DirectMessage]:
         """Get DM history with a user."""

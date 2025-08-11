@@ -232,6 +232,30 @@ class GameService:
 
         self.network_manager.send_broadcast(move_msg)
         return self._send_with_ack(opponent_id, move_fields)
+        
+    def accept_invite(self, invite: TicTacToeInvite, position: int, user: User) -> bool:
+        my_symbol = Symbol.O if invite.symbol == Symbol.X else Symbol.X
+
+        game = app_state.get_ttt_game(invite.game_id)
+        if not game:
+            game = TicTacToeGame(game_id=invite.game_id)
+            other = Symbol.O if invite.symbol == Symbol.X else Symbol.X
+            game.players = {invite.symbol: invite.from_user, other: user.user_id}
+            game.state = GameState.PENDING
+            app_state.add_ttt_game(game)
+
+        # guard turn just for UX; if MOVE from X hasn’t landed yet, this will say “not your turn”
+        if game.next_symbol != my_symbol:
+            if getattr(self.network_manager, "verbose", False):
+                print(f"[GAME] Not your turn yet in {invite.game_id} "
+                    f"(expected {game.next_symbol.value}, you are {my_symbol.value}).")
+            return False
+
+        ok = self.send_move(invite.game_id, position, user)
+        if ok:
+            app_state.remove_ttt_invite(invite.from_user, invite.game_id)
+        return ok
+
 
     
     def reject_invite(self, invite: TicTacToeInvite, user: User) -> bool:
@@ -287,8 +311,6 @@ class GameService:
         
         return ", ".join(status_parts) if status_parts else "Idle"
 
-
-
     def _send_with_ack(self, to_user_id: str, fields: dict) -> bool:
         """Send a message and wait for ACK with retries."""
         msg = build_message(fields)
@@ -296,16 +318,29 @@ class GameService:
         evt = app_state.mark_ack_pending(mid)
 
         for attempt in range(1, ACK_ATTEMPTS + 1):
-            self.network_manager.send_unicast(msg, to_user_id)
-            if getattr(self.network_manager, "verbose", False):
-                print(f"[ACK] Sent {fields['TYPE']} attempt {attempt}/%d mid={mid}" % ACK_ATTEMPTS)
-            if evt.wait(ACK_TIMEOUT):
+            try:
+                self.network_manager.send_unicast(msg, to_user_id)
                 if getattr(self.network_manager, "verbose", False):
-                    print(f"[ACK] Received ACK for {mid}")
-                return True
-            if getattr(self.network_manager, "verbose", False):
-                print(f"[ACK] Timeout waiting for {mid}, retrying...")
+                    print(f"[ACK] Sent {fields['TYPE']} attempt {attempt}/{ACK_ATTEMPTS} mid={mid}")
+                
+                # Wait for ACK
+                if evt.wait(ACK_TIMEOUT):
+                    if getattr(self.network_manager, "verbose", False):
+                        print(f"[ACK] Received ACK for {mid}")
+                    app_state.drop_ack_wait(mid)  # Clean up
+                    return True
+                
+                if getattr(self.network_manager, "verbose", False):
+                    print(f"[ACK] Timeout waiting for {mid}, retrying...")
+                
+            except Exception as e:
+                if getattr(self.network_manager, "verbose", False):
+                    print(f"[ACK] Send error on attempt {attempt}: {e}")
+                if attempt < ACK_ATTEMPTS:
+                    time.sleep(0.5)  # Short delay before retry
 
-        # give up
+        # Give up after all attempts
+        if getattr(self.network_manager, "verbose", False):
+            print(f"[ACK] Giving up on {mid} after {ACK_ATTEMPTS} attempts")
         app_state.drop_ack_wait(mid)
         return False

@@ -1,4 +1,5 @@
 """User management service."""
+import sys
 import time
 import uuid
 from typing import List, Optional
@@ -86,3 +87,40 @@ class UserService:
     def get_peer(self, user_id: str) -> Optional[Peer]:
         """Get a specific peer."""
         return app_state.get_peer(user_id)
+
+# Inside UserService
+
+    def logout(self):
+        """Log out the current user and broadcast revocation."""
+        if not self.user:
+            return
+
+        # Get all active tokens worth revoking
+        tokens = app_state.app_state.get_revocable_tokens()
+        if not tokens:
+            # No active token? create a short-lived one just to carry user_id in REVOKE
+            exp = int(time.time()) + 60
+            fake_token = f"{self.user.user_id}|{exp}|presence"
+            tokens = [fake_token]
+
+        for tok in tokens:
+            # Mark token revoked locally
+            app_state.app_state.revoke_token(tok)
+
+            # Broadcast revocation to peers
+            msg = build_message({"TYPE": "REVOKE", "TOKEN": tok})
+            self.network_manager.send_broadcast(msg)
+
+        # Remove self from local peer list immediately
+        app_state.app_state.remove_peer(self.user.user_id)
+
+        # Stop ping service so no further presence updates are sent
+        try:
+            self.ping_service.stop()
+        except Exception:
+            pass
+
+        # Clear session state
+        self.user = None
+        app_state.app_state._presence_token = None
+        print("[INFO] Logged out and presence revoked.")

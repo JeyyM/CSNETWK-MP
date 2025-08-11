@@ -56,12 +56,15 @@ class GameHandler:
     
     def handle_move(self, msg: dict, addr: tuple) -> None:
         """Handle incoming TICTACTOE_MOVE (apply on receiver, finish if needed)."""
+        # Send ACK immediately if message has ID
         mid = msg.get("MESSAGE_ID")
         if mid:
             self.network_manager.send_ack(mid, addr)
+            if self.verbose:
+                print(f"[ACK] Sent ACK for move {mid} to {addr[0]}")
         
         from_user = msg.get("FROM")
-        game_id   = msg.get("GAMEID")
+        game_id = msg.get("GAMEID")
         try:
             position = int(msg.get("POSITION", -1))
         except ValueError:
@@ -97,22 +100,19 @@ class GameHandler:
             return
         game.moves_seen.add(key)
 
-        # Validate move
+        # Validate and apply move
         if not game.is_valid_move(position):
             if self.verbose:
                 print(f"[GAME] Invalid move {position} in {game_id}")
             return
 
-        # Apply
         game.make_move(position, symbol)
         game.state = GameState.ACTIVE
 
-        # Print board (RFC suggests printing board on MOVE)
         if self.verbose:
             print(game.render_board())
             print(f"[GAME] Next: {game.next_symbol.value}")
 
-        # Finish if win/draw (do NOT send RESULT here—only mover sends)
         if game.check_winner() or game.is_draw():
             game.state = GameState.FINISHED
             if self.verbose:
@@ -120,7 +120,6 @@ class GameHandler:
                     print(f"[GAME] DRAW in {game_id}")
                 else:
                     print(f"[GAME] {symbol.value} wins in {game_id}")
-            # Remove locally so it disappears from active
             app_state.remove_ttt_game(game_id)
     
     def handle_result(self, msg: dict, addr: tuple) -> None:
