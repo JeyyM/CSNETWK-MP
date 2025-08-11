@@ -3,46 +3,64 @@ from ..network.client import extract_ip_from_user_id
 
 # Which message types require which token scope
 EXPECTED_SCOPE = {
+    "DM": "chat",
     "POST": "broadcast",
     "LIKE": "broadcast",
-    "DM": "chat",
     "FOLLOW": "follow",
     "UNFOLLOW": "follow",
     "FILE_OFFER": "file",
     "FILE_CHUNK": "file",
+    "FILE_RECEIVED": None,        # no token in spec
     "GROUP_CREATE": "group",
     "GROUP_UPDATE": "group",
     "GROUP_MESSAGE": "group",
     "TICTACTOE_INVITE": "game",
     "TICTACTOE_MOVE": "game",
-    # NOTE: do not require a token for REVOKE, PING, PROFILE, ACK, FILE_RECEIVED
+    "TICTACTOE_RESULT": "game",
+    "PROFILE": None,              # no token
+    "PING": None,                 # no token
+    "ACK": None,                  # no token
+    "REVOKE": None,               # allow through; it *is* the revocation
 }
 
-def require_valid_token(msg: dict, addr: tuple, verbose: bool = False) -> bool:
-    """Return True if message passes LSNP token checks, else False (with verbose reason)."""
+ID_FIELD_MAP = {
+    "POST": "USER_ID",
+    "PROFILE": "USER_ID",
+    "PING": "USER_ID",
+    # everything else uses FROM
+}
+
+def _sender_user_id(msg_type: str, msg: dict) -> str | None:
+    field = ID_FIELD_MAP.get(msg_type, "FROM")
+    return msg.get(field)
+
+def require_valid_token(msg: dict, addr: tuple, verbose: bool) -> bool:
     mtype = msg.get("TYPE", "")
-    expected = EXPECTED_SCOPE.get(mtype)
-    if not expected:
-        return True  # no token required for this type
+    expected_scope = SCOPE_MAP.get(mtype, None)
+
+    # Source IP vs declared user@ip check (Security Considerations)
+    uid = _sender_user_id(mtype, msg)
+    if uid and "@" in uid:
+        declared_ip = uid.split("@", 1)[1]
+        if declared_ip != addr[0]:
+            if verbose:
+                print(f"DROP ! {mtype}: IP mismatch {declared_ip} != {addr[0]}")
+            return False
+
+    # If this type doesn't use tokens, allow it through
+    if expected_scope is None:
+        return True
 
     token = msg.get("TOKEN")
     if not token:
         if verbose:
-            print(f"[AUTH] DROP {mtype}: missing TOKEN")
+            print(f"DROP ! {mtype}: missing TOKEN")
         return False
 
-    ok, reason = app_state.validate_token(token, expected)
+    ok, reason = app_state.validate_token(token, expected_scope)
     if not ok:
         if verbose:
-            print(f"[AUTH] DROP {mtype}: invalid token ({reason})")
-        return False
-
-    # Optional IP hardening per RFC Security Considerations
-    claimed = msg.get("FROM") or msg.get("USER_ID") or ""
-    ip = extract_ip_from_user_id(claimed)
-    if ip and ip != addr[0]:
-        if verbose:
-            print(f"[AUTH] DROP {mtype}: IP mismatch (claimed {ip} vs actual {addr[0]})")
+            print(f"DROP ! {mtype}: invalid token ({reason})")
         return False
 
     return True
