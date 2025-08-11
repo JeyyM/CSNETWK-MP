@@ -17,6 +17,9 @@ from .ui.posts_menu import PostsMenu
 from .ui.dm_menu import DirectMessageMenu
 from .ui.game_menu import GameMenu
 from .utils.setup import create_user_profile
+from .services.file_service import FileService
+from .ui.file_menu import FileMenu
+from .core import state as core_state
 
 class LSNPApplication:
     """Main LSNP application controller."""
@@ -73,6 +76,15 @@ class LSNPApplication:
         self.posts_menu = PostsMenu(self.user, self.message_service)
         self.dm_menu = DirectMessageMenu(self.user, self.message_service, self.user_service)
         self.game_menu = GameMenu(self.user, self.game_service, self.user_service)
+
+        # File service + UI
+        self.file_service = FileService(self.network_manager, self.user, verbose=self.user.verbose)
+        # expose to global app_state so handlers can access it
+        core_state.app_state.file_service = self.file_service
+        # register UI callback for notifications (non-blocking)
+        core_state.app_state.register_incoming_file_listener(self._on_incoming_offer)
+        # create FileMenu
+        self.file_menu = FileMenu(self.user, self.file_service, self.network_manager)
     
     def start(self) -> None:
         """Start the application."""
@@ -135,7 +147,8 @@ class LSNPApplication:
                     print("Group messages not yet implemented.\n")
                 
                 elif choice == "5":
-                    print("File transfer not yet implemented.\n")
+                    self.file_menu.show_file_menu()
+
                 
                 elif choice == "6":
                     self.game_menu.show_game_menu()
@@ -177,6 +190,12 @@ class LSNPApplication:
             display_name = peer.display_name if peer else user_id.split("@")[0]
             print(f"  - {display_name} ({user_id}): {msg_count} messages")
         print()
+    
+    def _on_incoming_offer(self, fileid: str, offer: dict) -> None:
+        from_user = offer.get("from", "").split("@")[0]
+        print(f"\n📂 Incoming file offer {fileid} from {from_user}: {offer.get('filename')} ({offer.get('filesize')} bytes)")
+        print("Open Files menu to accept or reject.")
+
 
 
 def main() -> None:

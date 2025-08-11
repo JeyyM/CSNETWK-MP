@@ -8,6 +8,7 @@ from .post_handler import PostHandler
 from .like_handler import LikeHandler
 from .game_handler import GameHandler
 from ..network.client import NetworkManager
+from ..handlers.file_handler import handle_file_message
 
 
 class MessageRouter:
@@ -35,18 +36,28 @@ class MessageRouter:
             "TICTACTOE_MOVE": self.game_handler.handle_move,
             "TICTACTOE_RESULT": self.game_handler.handle_result,
             "ACK": self._handle_ack,
+
+            "FILE_OFFER": handle_file_message,
+            "FILE_ACCEPT": handle_file_message,
+            "FILE_REJECT": handle_file_message,
+            "FILE_CHUNK": handle_file_message,
+            "FILE_RECEIVED": handle_file_message,
         }
     
     def route_message(self, msg: dict, addr: tuple) -> None:
-        """Route a message to the appropriate handler."""
         message_type = msg.get("TYPE", "")
-        handler = self.handlers.get(message_type)
         
+        if message_type.startswith("FILE_"):
+            handle_file_message(msg, addr)
+            return
+        
+        handler = self.handlers.get(message_type)
         if handler:
             handler(msg, addr)
         else:
             if self.verbose:
-                print(f"⚠️  Unknown message type: {message_type}")
+                print(f"⚠️ Unknown message type: {message_type}")
+
     
     def _handle_ack(self, msg: dict, addr: tuple) -> None:
         """Handle ACK messages."""
