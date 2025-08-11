@@ -50,36 +50,39 @@ class GameService:
         return game_id if success else None
     
     def send_move(self, game_id: str, position: int, user: User) -> bool:
-        """Send a game move."""
         game = app_state.get_ttt_game(game_id)
         if not game:
             return False
-        
+
         player_symbol = game.get_player_symbol(user.user_id)
         if not player_symbol:
             return False
-        
-        opponent_id = game.get_opponent(user.user_id)
-        if not opponent_id:
+
+        # Enforce turn and position validity locally
+        if game.next_symbol != player_symbol:
+            # Not your turn; ignore (or print a warning)
+            return False
+        if not game.is_valid_move(position):
             return False
 
+        # --- APPLY MOVE LOCALLY so the sender sees it ---
+        game.make_move(position, player_symbol)
+        game.state = GameState.ACTIVE
+
+        # (optional) check end state locally
+        # winner = game.check_winner()
+        # if winner or game.is_draw(): game.state = GameState.FINISHED
+
+        # then build + send the unicast as you already do
         message_id = uuid.uuid4().hex[:8]
         timestamp = int(time.time())
         token = f"{user.user_id}|{timestamp+3600}|game"
-
         fields = {
-            "TYPE": "TICTACTOE_MOVE",
-            "FROM": user.user_id,
-            "TO": opponent_id,
-            "GAMEID": game_id,
-            "POSITION": position,
-            "SYMBOL": player_symbol.value,
-            "MESSAGE_ID": message_id,
-            "TIMESTAMP": timestamp,
-            "TOKEN": token,
+            "TYPE": "TICTACTOE_MOVE", "FROM": user.user_id, "TO": opponent_id,
+            "GAMEID": game_id, "POSITION": position, "SYMBOL": player_symbol.value,
+            "MESSAGE_ID": message_id, "TIMESTAMP": timestamp, "TOKEN": token,
         }
         move_msg = build_message(fields)
-        
         return self.network_manager.send_unicast(move_msg, opponent_id)
     
     def accept_invite(self, invite: TicTacToeInvite, first_move: int, user: User) -> bool:
