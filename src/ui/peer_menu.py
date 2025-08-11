@@ -40,11 +40,11 @@ class PeerMenu:
                         peer = peers[peer_index]
                         self._handle_follow_unfollow(choice[0], peer)
                     else:
-                        print("❌ Invalid peer number.\n")
+                        print("Invalid peer number.\n")
                 except ValueError:
-                    print("❌ Invalid option.\n")
+                    print("Invalid option.\n")
             else:
-                print("❌ Invalid option.\n")
+                print("Invalid option.\n")
     
     def _display_peers(self, peers: List[Peer]) -> None:
         """Display list of peers with follow status."""

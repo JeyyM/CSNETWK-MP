@@ -30,27 +30,27 @@ class PostsMenu:
             elif choice == "B":
                 break
             else:
-                print("❌ Invalid option.\n")
+                print("Invalid option.\n")
     
     def _create_post(self) -> None:
         """Create a new post."""
         content = input("Enter your post (blank to cancel): ").strip()
         if not content:
-            print("❌ Post canceled.\n")
+            print("Post canceled.\n")
             return
         
         success = self.message_service.create_post(content, self.user)
         if success:
             print("Post successfully created! Your message is now visible to followers!\n")
         else:
-            print("❌ Failed to create post.\n")
+            print("Failed to create post.\n")
     
     def _view_posts(self, filter_followed: bool = True) -> None:
         """View posts feed."""
         posts = self.message_service.get_posts(filter_followed, self.user.user_id)
         
         if not posts:
-            print("\n📭 No posts to show with current filter.")
+            print("\nNo posts to show.")
             self._show_debug_info(filter_followed)
             return
         
@@ -86,8 +86,8 @@ class PostsMenu:
                 action_text = "unlike" if liked else "like"
                 
                 print(f"[{idx}] ({format_time_ago(post.age_seconds)}) {post.display_name} ({post.user_id})")
-                print(f"📝 {post.content}")
-                print(f"❤️ Likes: {post.like_count} – Press [{like_action}{idx}] to {action_text}\n")
+                print(f"Post : {post.content}")
+                print(f"Likes: {post.like_count} - Press [{like_action}{idx}] to {action_text}\n")
                 
                 post_keys[f"{like_action}{idx}"] = post
             
@@ -102,16 +102,16 @@ class PostsMenu:
                 is_like = choice.startswith("L")
                 self._handle_like_action(post, is_like)
             else:
-                print("❌ Invalid post number.")
+                print("Invalid post number.")
     
     def _handle_like_action(self, post: Post, is_like: bool) -> None:
         """Handle like/unlike action on a post."""
         success = self.message_service.like_post(post, self.user, is_like)
         if success:
             if is_like:
-                print("❤️ You liked the post.\n")
+                print("You liked the post.\n")
             else:
-                print("💔 You unliked the post.\n")
+                print("You unliked the post.\n")
         else:
             action = "like" if is_like else "unlike"
-            print(f"❌ Failed to {action} the post.\n")
+            print(f"Failed to {action} the post.\n")

@@ -45,7 +45,7 @@ def get_choice(prompt: str, valid_choices: List[str]) -> Optional[str]:
         choice = input(f"{prompt}: ").strip().upper()
         if choice in valid_choices:
             return choice
-        print(f"❌ Invalid choice. Valid options: {', '.join(valid_choices)}")
+        print(f"Invalid choice. Valid options: {', '.join(valid_choices)}")
 
 
 def paginate_list(items: List[str], page_size: int = 10) -> List[List[str]]:

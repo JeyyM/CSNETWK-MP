@@ -94,7 +94,7 @@ class GameMenu:
                 if not (0 <= pos <= 8):
                     raise ValueError
             except ValueError:
-                print("Invalid position. Must be 0–8.")
+                print("Invalid position. Must be 0-8.")
                 return
 
             ok = self.game_service.invite_with_first_move(opponent.user_id, pos, self.user)
@@ -171,7 +171,7 @@ class GameMenu:
                     if not (0 <= position <= 8):
                         raise ValueError
                 except ValueError:
-                    print("Invalid position. Must be 0–8.")
+                    print("Invalid position. Must be 0-8.")
                     continue
                 success = self.game_service.accept_invite(invite, position, self.user)
                 if success:

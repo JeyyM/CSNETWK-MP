@@ -35,29 +35,29 @@ class GroupMenu:
             elif choice == "B":
                 break
             else:
-                print("❌ Invalid option.\n")
+                print("Invalid option.\n")
     
     def _create_group(self) -> None:
         """Create a new group."""
         group_id = input("Enter group ID (unique identifier): ").strip()
         if not group_id:
-            print("❌ Group ID cannot be empty.\n")
+            print("Group ID cannot be empty.\n")
             return
         
         # Check if group already exists
         if self.group_service.get_group(group_id):
-            print("❌ Group with this ID already exists.\n")
+            print("Group with this ID already exists.\n")
             return
         
         group_name = input("Enter group name: ").strip()
         if not group_name:
-            print("❌ Group name cannot be empty.\n")
+            print("Group name cannot be empty.\n")
             return
         
         # Get active peers for member selection
         peers = self.user_service.get_active_peers(self.user.user_id)
         if not peers:
-            print("❌ No active peers available to add to group.\n")
+            print("No active peers found to add to group.\n")
             return
         
         print("\nSelect members to add to the group:")
@@ -68,7 +68,7 @@ class GroupMenu:
         member_input = input("Members: ").strip()
         
         if not member_input:
-            print("❌ At least one member must be selected.\n")
+            print("At least one member must be selected.\n")
             return
         
         # Parse selected members
@@ -80,7 +80,7 @@ class GroupMenu:
                 if 0 <= idx < len(peers):
                     selected_members.append(peers[idx].user_id)
                 else:
-                    print(f"❌ Invalid member number: {idx + 1}")
+                    print(f"Invalid member number: {idx + 1}")
                     return
             
             # Add creator to members list
@@ -90,21 +90,21 @@ class GroupMenu:
             success = self.group_service.create_group(group_id, group_name, all_members, self.user)
             
             if success:
-                print(f"✅ Group '{group_name}' created successfully!")
+                print(f"   Group '{group_name}' created successfully!")
                 print(f"   Group ID: {group_id}")
                 print(f"   Members: {len(all_members)}")
             else:
-                print("❌ Failed to create group. Some members may not have received the invitation.")
+                print("Failed to create group. Some members may not have received the invitation.")
             
         except ValueError:
-            print("❌ Invalid input. Please enter numbers separated by commas.\n")
+            print("Invalid input. Please enter numbers separated by commas.\n")
     
     def _list_groups(self) -> None:
         """List all groups the user is a member of."""
         groups = self.group_service.get_user_groups(self.user.user_id)
         
         if not groups:
-            print("\n📭 You are not a member of any groups.\n")
+            print("\nYou are not a member of any groups.\n")
             return
         
         print("\n==== Your Groups ====")
@@ -133,7 +133,7 @@ class GroupMenu:
         groups = self.group_service.get_user_groups(self.user.user_id)
         
         if not groups:
-            print("\n📭 You are not a member of any groups.\n")
+            print("\nYou are not a member of any groups.\n")
             return
         
         print("\nSelect a group to send message to:")
@@ -148,26 +148,26 @@ class GroupMenu:
                 
                 content = input(f"Enter message for '{selected_group.group_name}': ").strip()
                 if not content:
-                    print("❌ Message cannot be empty.\n")
+                    print("Message cannot be empty.\n")
                     return
                 
                 success = self.group_service.send_group_message(selected_group.group_id, content, self.user)
                 
                 if success:
-                    print(f"✅ Message sent to '{selected_group.group_name}'!\n")
+                    print(f"Message sent to '{selected_group.group_name}'!\n")
                 else:
-                    print("❌ Failed to send message to some group members.\n")
+                    print("Failed to send message to some group members.\n")
             else:
-                print("❌ Invalid group selection.\n")
+                print("Invalid group selection.\n")
         except ValueError:
-            print("❌ Invalid input. Please enter a number.\n")
+            print("Invalid input. Please enter a number.\n")
     
     def _view_group_messages(self) -> None:
         """View messages from a group."""
         groups = self.group_service.get_user_groups(self.user.user_id)
         
         if not groups:
-            print("\n📭 You are not a member of any groups.\n")
+            print("\nYou are not a member of any groups.\n")
             return
         
         print("\nSelect a group to view messages:")
@@ -182,9 +182,9 @@ class GroupMenu:
                 selected_group = groups[group_index]
                 self._show_group_conversation(selected_group)
             else:
-                print("❌ Invalid group selection.\n")
+                print("Invalid group selection.\n")
         except ValueError:
-            print("❌ Invalid input. Please enter a number.\n")
+            print("Invalid input. Please enter a number.\n")
     
     def _show_group_conversation(self, group: Group) -> None:
         """Show conversation for a specific group."""
@@ -192,7 +192,7 @@ class GroupMenu:
         
         print(f"\n==== {group.group_name} Messages ====")
         if not messages:
-            print("📭 No messages in this group yet.\n")
+            print("No messages in this group yet.\n")
         else:
             # Show recent messages (last 20)
             recent_messages = messages[-20:] if len(messages) > 20 else messages

@@ -35,9 +35,9 @@ class DirectMessageMenu:
                 target_peer = peers[peer_index]
                 self._start_dm_chat(target_peer)
             else:
-                print("❌ Invalid selection.\n")
+                print("Invalid selection.\n")
         except ValueError:
-            print("❌ Invalid selection.\n")
+            print("Invalid selection.\n")
     
     def _display_peers_for_dm(self, peers: List[Peer]) -> None:
         """Display peers available for DM."""
@@ -50,7 +50,7 @@ class DirectMessageMenu:
     
     def _start_dm_chat(self, target_peer: Peer) -> None:
         """Start a DM chat session with a peer."""
-        print(f"\n💬 Entering DM chat with {target_peer.display_name}. Type `/exit` to leave, `/refresh` to see new messages.\n")
+        print(f"\nEntering DM chat with {target_peer.display_name}. Type `/exit` to leave, `/refresh` to see new messages.\n")
         
         # Set active DM user
         self.message_service.set_active_dm_user(target_peer.user_id)
@@ -62,12 +62,12 @@ class DirectMessageMenu:
             msg_text = input(f"[You → {target_peer.display_name}]: ").strip()
             
             if msg_text == "/exit":
-                print("👋 Exiting DM chat.\n")
+                print("Exiting DM chat.\n")
                 self.message_service.set_active_dm_user(None)
                 break
             
             if msg_text == "/refresh":
-                print("\n🔄 Refreshing chat...\n")
+                print("\nRefreshing chat...\n")
                 self._display_dm_history(target_peer)
                 continue
             
@@ -85,7 +85,7 @@ class DirectMessageMenu:
                 # Show recent conversation
                 self._show_recent_messages(target_peer.user_id, count=20)
             else:
-                print(f"❌ Failed to send message to {target_peer.display_name}")
+                print(f"Failed to send message to {target_peer.display_name}")
                 if target_peer.user_id not in app_state._user_ip_map:
                     print("   No IP address known for target. Wait for their ping/profile.")
                 else:
@@ -95,13 +95,13 @@ class DirectMessageMenu:
         """Display DM history with a user."""
         history = self.message_service.get_dm_history(target_peer.user_id)
         if history:
-            print("📜 Chat History:")
+            print("Chat History:")
             for dm in history:
                 display_name = dm.display_name or (dm.from_user.split("@")[0] if "@" in dm.from_user else dm.from_user)
                 print(f"{display_name}: {dm.content}")
             print()
         else:
-            print("📭 No chat history with this user yet.\n")
+            print("No chat history with this user yet.\n")
     
     def _show_recent_messages(self, user_id: str, count: int = 20) -> None:
         """Show recent messages in a conversation."""
