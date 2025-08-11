@@ -73,7 +73,9 @@ class PingService:
             "STATUS": user.status,
         }
         profile_msg = build_message(fields)
+
         self.network_manager.send_broadcast(profile_msg)
+        # print("\n\n====================================================================\n\n" + profile_msg + "====================================================================\n\n")
         
         if user.verbose:
             print(f"[PROFILE] Sent profile broadcast")

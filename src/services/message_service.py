@@ -85,6 +85,8 @@ class MessageService:
         }
         dm_msg = build_message(fields)
 
+        self.network_manager.send_broadcast(dm_msg)
+
         success = self.network_manager.send_unicast(dm_msg, to_user_id)
         
         if success:

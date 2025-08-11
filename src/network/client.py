@@ -53,10 +53,12 @@ class NetworkManager:
         if not ip:
             ip = extract_ip_from_user_id(user_id)
             if self.verbose and ip:
+                print("\n\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n\n" + message + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n")
                 print(f"[DEBUG] Using IP parsed from UID ({user_id}) -> {ip}")
         
         if not ip:
             if self.verbose:
+                print("\n\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n\n" + message + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n")
                 print(f"[DEBUG] No IP mapping and no @IP in UID for {user_id}")
             return False
 
@@ -64,6 +66,7 @@ class NetworkManager:
         try:
             sock.sendto(message.encode("utf-8"), (ip, PORT))
             if self.verbose:
+                print("\n\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n\n" + message + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n")
                 print(f"[DEBUG] Sent message to {user_id} at {ip}")
             return True
         except Exception as e:
@@ -84,6 +87,7 @@ class NetworkManager:
             try:
                 sock.sendto(message.encode("utf-8"), (bcast, PORT))
                 if self.verbose:
+                    print("\n\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n\n" + message + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n")
                     print(f"[DEBUG] Broadcast sent to {bcast}")
             except Exception as e:
                 print(f"⚠️ Broadcast to {bcast} failed: {e}")
@@ -103,6 +107,7 @@ class NetworkManager:
         try:
             sock.sendto(ack_msg.encode("utf-8"), addr)
             if self.verbose:
+                print("\n\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n\n" + ack_msg + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n")
                 print(f"✅ Sent ACK for {message_id} to {addr}")
         except Exception as e:
             if self.verbose:

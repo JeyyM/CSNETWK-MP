@@ -47,6 +47,7 @@ class UserService:
             "TOKEN": token,
         }
         follow_msg = build_message(fields)
+        self.network_manager.send_broadcast(follow_msg)
         success = self.network_manager.send_unicast(follow_msg, user_id)
         
         if success:
@@ -70,6 +71,7 @@ class UserService:
             "TOKEN": token,
         }
         unfollow_msg = build_message(fields)
+        self.network_manager.send_broadcast(unfollow_msg)
         success = self.network_manager.send_unicast(unfollow_msg, user_id)
         
         if success:

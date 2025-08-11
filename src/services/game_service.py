@@ -47,11 +47,9 @@ class GameService:
             "TOKEN": token,
         }
         invite_msg = build_message(fields)
+
+        self.network_manager.send_broadcast(invite_msg)
         
-        success = self.network_manager.send_unicast(invite_msg, opponent_id)
-        
-        
-        invite_msg = build_message(fields)
         success = self._send_with_ack(opponent_id, fields)
         return game_id if success else None
     
@@ -131,6 +129,8 @@ class GameService:
                 fields["WINNING_LINE"] = winning_line
 
             msg = build_message(fields)
+
+            self.network_manager.send_broadcast(msg)
             self.network_manager.send_unicast(msg, opponent_id)
 
             # Optional: print locally
@@ -158,6 +158,11 @@ class GameService:
             "TIMESTAMP": timestamp,
             "TOKEN": token,
         }
+
+        move_msg = build_message(fields)
+
+        self.network_manager.send_broadcast(move_msg)
+
         return self._send_with_ack(opponent_id, fields)
 
         
@@ -189,6 +194,11 @@ class GameService:
             "TIMESTAMP": ts_inv,
             "TOKEN": f"{user.user_id}|{ts_inv+3600}|game",
         }
+
+        invite_msg = build_message(invite_fields)
+
+        self.network_manager.send_broadcast(invite_msg)
+
         if not self._send_with_ack(opponent_id, invite_fields):
             return False
 
@@ -217,6 +227,10 @@ class GameService:
             "TIMESTAMP": ts_mv,
             "TOKEN": f"{user.user_id}|{ts_mv+3600}|game",
         }
+
+        move_msg = build_message(move_fields)
+
+        self.network_manager.send_broadcast(move_msg)
         return self._send_with_ack(opponent_id, move_fields)
 
     
