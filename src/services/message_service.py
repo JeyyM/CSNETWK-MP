@@ -137,3 +137,4 @@ class MessageService:
     def get_active_dm_user(self) -> Optional[str]:
         """Get the active DM user."""
         return app_state.get_active_dm_user()
+#
