@@ -27,6 +27,10 @@ class DmHandler:
                 print(f"[DEBUG] Invalid DM - missing FROM or CONTENT")
             return
 
+        # Ignore DMs sent by yourself (to avoid double entry)
+        if app_state._local_user_id and from_user == app_state._local_user_id:
+            return
+
         # Update sender's IP
         app_state.update_peer_ip(from_user, addr[0])
 

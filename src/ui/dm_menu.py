@@ -82,8 +82,6 @@ class DirectMessageMenu:
             success = self.message_service.send_direct_message(msg_text, target_peer.user_id, self.user)
             
             if success:
-                # Add to local history for display
-                self._add_outgoing_message_to_history(target_peer.user_id, msg_text)
                 # Show recent conversation
                 self._show_recent_messages(target_peer.user_id, count=20)
             else:
@@ -118,16 +116,8 @@ class DirectMessageMenu:
     
     def _add_outgoing_message_to_history(self, target_user_id: str, content: str) -> None:
         """Add outgoing message to DM history."""
-        # Create a DirectMessage for the outgoing message
-        dm = DirectMessage(
-            from_user=self.user.user_id,
-            to_user=target_user_id,
-            content=content,
-            timestamp=0,  # Will be set by the service
-            display_name=self.user.display_name
-        )
-        # Store under target user's ID for conversation grouping
-        app_state.add_dm(dm)
+        # This is now handled in MessageService.send_direct_message, so this can be removed or left empty.
+        pass
     
     def _show_dm_debug_info(self, target_peer: Peer) -> None:
         """Show debug information for DM troubleshooting."""
@@ -137,6 +127,16 @@ class DirectMessageMenu:
         print(f"Target IP: {app_state.get_peer_ip(target_peer.user_id) or 'Not found'}")
         
         conversations = self.message_service.get_dm_conversations()
+        print(f"DM conversations: {list(conversations.keys())}")
+        
+        if target_peer.user_id in conversations:
+            history = self.message_service.get_dm_history(target_peer.user_id)
+            print(f"Messages with {target_peer.user_id}: {len(history)}")
+            for i, dm in enumerate(history):
+                print(f"  {i+1}: {dm.content}")
+        else:
+            print(f"No message history with {target_peer.user_id}")
+        print()
         print(f"DM conversations: {list(conversations.keys())}")
         
         if target_peer.user_id in conversations:

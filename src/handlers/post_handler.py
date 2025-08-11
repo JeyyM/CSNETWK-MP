@@ -22,6 +22,10 @@ class PostHandler:
         user_id = msg.get("USER_ID", "").strip()
         content = msg.get("CONTENT", "")
 
+        # Ignore posts sent by yourself (to avoid double entry)
+        if app_state._local_user_id and user_id == app_state._local_user_id:
+            return
+
         # Basic sanity
         if not user_id or not content:
             if self.verbose:

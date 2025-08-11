@@ -34,18 +34,19 @@ class MessageService:
         post_msg = build_message(fields)
         self.network_manager.send_broadcast(post_msg)
 
-        # <-- add this so the author immediately sees their own post
-        app_state.add_post(
-            Post(
-                user_id=user.user_id,
-                display_name=user.display_name,
-                content=content,
-                timestamp=timestamp,
-                message_id=message_id,
-                likes=set(),
-                ttl=ttl,
+        # Only add if not already present (dedupe by message_id)
+        if not any(p.message_id == message_id for p in app_state.get_posts(False)):
+            app_state.add_post(
+                Post(
+                    user_id=user.user_id,
+                    display_name=user.display_name,
+                    content=content,
+                    timestamp=timestamp,
+                    message_id=message_id,
+                    likes=set(),
+                    ttl=ttl,
+                )
             )
-        )
         return True
 
     
@@ -104,7 +105,7 @@ class MessageService:
         success = self.network_manager.send_unicast(dm_msg, to_user_id)
         
         if success:
-            # Add to local history
+            # Add to local history here (not in UI)
             dm = DirectMessage(
                 from_user=user.user_id,
                 to_user=to_user_id,
@@ -113,8 +114,7 @@ class MessageService:
                 message_id=message_id,
                 display_name=user.display_name
             )
-            # Note: For outgoing messages, we store them under the recipient's ID
-            # This is handled in the UI layer for proper display
+            app_state.add_dm(dm)
         
         return success
     
