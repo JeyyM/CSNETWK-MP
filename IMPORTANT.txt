@@ -1,6 +1,0 @@
-Windows needed to do this in powershell as admin
-New-NetFirewallRule -DisplayName "LSNP UDP 50999" -Direction Inbound -Action Allow -Protocol UDP -LocalPort 50999
-
-IF WE ARE DONE FOR SAFETY
-Remove-NetFirewallRule -DisplayName "LSNP UDP 50999"
-
