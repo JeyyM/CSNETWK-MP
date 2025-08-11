@@ -37,7 +37,7 @@ class UDPListener:
                 print(f"⚠️  Retry {retry + 1}: Failed to bind to port {PORT}, retrying in 1 second...")
                 time.sleep(1)
 
-        print(f"[INFO] Listening on UDP port {PORT}...")
+        print(f"Listening on UDP port {PORT}")
         self.running = True
 
         try:

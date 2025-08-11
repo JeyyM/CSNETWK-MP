@@ -6,7 +6,7 @@ from ..ui.components import get_user_input
 
 def create_user_profile() -> User:
     """Create a user profile through interactive prompts."""
-    print("==== Welcome to LSNP ====")
+    print("==== Welcome to the LSNP Messaging Service ====")
     
     verbose_input = input("Enable Verbose Mode? (y/n): ").lower()
     verbose = verbose_input == "y"
@@ -20,5 +20,5 @@ def create_user_profile() -> User:
     
     user = User.create(username, display_name, status, ip, verbose)
     
-    print(f"\n✅ Profile created! Your User ID: {user.user_id}\n")
+    print(f"\nProfile successfully created! Your User ID: {user.user_id}\n")
     return user

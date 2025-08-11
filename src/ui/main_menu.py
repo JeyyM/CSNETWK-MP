@@ -26,7 +26,7 @@ class MainMenu:
     
     def show(self) -> Optional[str]:
         """Show the main menu and get user choice."""
-        show_menu("LSNP CLI Menu", self.menu_options)
+        show_menu("LSNP Messaging System", self.menu_options)
         
         valid_choices = [str(i) for i in range(len(self.menu_options))]
         choice = get_choice("Select an option", valid_choices)

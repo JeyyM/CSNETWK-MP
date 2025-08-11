@@ -54,22 +54,22 @@ class PeerMenu:
             action_key = f"U{idx}" if is_following else f"F{idx}"
             
             print(f"{idx}. {peer.display_name} ({peer.user_id})")
-            print(f"   ➤ {following_status}")
-            print(f"   🗨️  Status    : {peer.status}")
-            print(f"   ⏱️  Last Seen : {format_time_ago(peer.seconds_since_seen)}")
-            print(f"   🎛️  Press [{action_key}] to {'Unfollow' if is_following else 'Follow'}\n")
+            print(f"{following_status}")
+            print(f"Status    : {peer.status}")
+            print(f"Last Seen : {format_time_ago(peer.seconds_since_seen)}")
+            print(f"Press [{action_key}] to {'Unfollow' if is_following else 'Follow'}\n")
     
     def _handle_follow_unfollow(self, action: str, peer: Peer) -> None:
         """Handle follow/unfollow action."""
         if action == "F":
             success = self.user_service.follow_user(peer.user_id, self.user)
             if success:
-                print(f"✅ Followed {peer.user_id}\n")
+                print(f"Successfully Followed {peer.user_id}\n")
             else:
-                print(f"❌ Failed to follow {peer.user_id}\n")
+                print(f"Failed to follow {peer.user_id}\n")
         elif action == "U":
             success = self.user_service.unfollow_user(peer.user_id, self.user)
             if success:
-                print(f"🚫 Unfollowed {peer.user_id}\n")
+                print(f"Successfully Unfollowed {peer.user_id}\n")
             else:
-                print(f"❌ Failed to unfollow {peer.user_id}\n")
+                print(f"Failed to unfollow {peer.user_id}\n")

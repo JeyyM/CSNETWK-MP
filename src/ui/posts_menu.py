@@ -18,7 +18,7 @@ class PostsMenu:
         """Show posts management interface."""
         while True:
             choice = input(
-                "\n[A] Add New Post\n[V] View Posts (Followed)\n[O] View ALL Posts (debug)\n[B] Back to Main Menu\nSelect: "
+                "\n[A] Add New Post\n[V] View Followed Posts\n[O] View All Posts\n[B] Back to Main Menu\nSelect: "
             ).strip().upper()
             
             if choice == "A":
@@ -41,7 +41,7 @@ class PostsMenu:
         
         success = self.message_service.create_post(content, self.user)
         if success:
-            print("✅ Post broadcasted. Your message is now visible to followers.\n")
+            print("Post successfully created! Your message is now visible to followers!\n")
         else:
             print("❌ Failed to create post.\n")
     
