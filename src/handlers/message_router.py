@@ -16,6 +16,7 @@ from ..handlers.file_handler import handle_file_message
 from ..core.state import app_state
 from ..utils.auth import require_valid_token
 
+
 class MessageRouter:
     """Routes incoming messages to appropriate handlers."""
     
@@ -53,7 +54,7 @@ class MessageRouter:
             "FILE_CHUNK": handle_file_message,
             "FILE_RECEIVED": handle_file_message,
             
-            "REVOKE": self._handle_revoke
+            "REVOKE": self._handle_revoke,
         }
     
     def route_message(self, msg: dict, addr: tuple) -> None:
@@ -69,34 +70,21 @@ class MessageRouter:
                     print(f"✅ ACK received for {mid} from {addr[0]}")
             return
         
-        # Validate token if present (except for ACK which was handled above)
-        token = msg.get("TOKEN")
-        if token:
-            valid, reason = app_state.validate_token(token, "game")
-            if not valid:
-                if self.verbose:
-                    print(f"[AUTH] Invalid token: {reason}")
-                return
+        # Per-RFC auth: validate IP match + token scope/expiry/revocation per TYPE.
+        # (PROFILE, PING, ACK, FILE_RECEIVED, REVOKE are allowed without tokens.)
+        if not require_valid_token(msg, addr, self.verbose):
+            # require_valid_token already printed a DROP reason in verbose mode
+            return
 
         # Route to appropriate handler
-        if mtype in self.handlers:
-            self.handlers[mtype](msg, addr)
+        handler = self.handlers.get(mtype)
+        if handler:
+            handler(msg, addr)
         elif self.verbose:
             print(f"[ROUTER] Unhandled message type: {mtype}")
 
     def _handle_ack(self, msg: dict, addr: tuple) -> None:
         """Handle incoming ACK messages."""
-        mid = msg.get("MESSAGE_ID")
-        if not mid:
-            return
-            
-        if self.verbose:
-            print(f"[ACK] Received ACK for {mid} from {addr[0]}")
-            
-        app_state.acknowledge(mid)
-
-    
-    def _handle_ack(self, msg: dict, addr: tuple) -> None:
         mid = msg.get("MESSAGE_ID")
         if mid:
             app_state.resolve_ack(mid)
@@ -106,6 +94,7 @@ class MessageRouter:
             print(f"[ACK] Received ACK without MESSAGE_ID from {addr[0]}:{addr[1]}")
 
     def _handle_revoke(self, msg: dict, addr: tuple) -> None:
+        """Handle token revocation broadcast."""
         tok = msg.get("TOKEN")
         if not tok:
             if self.verbose:
@@ -120,15 +109,14 @@ class MessageRouter:
 
         user_id, expiry, scope = parsed
 
-        # Mark token revoked locally
+        # Mark token revoked locally and remove peer from active list
         app_state.revoke_token(tok)
-
-        # Remove the peer entirely from the active list
         app_state.remove_peer(user_id)
 
         if self.verbose:
             print(f"[REVOKE] From {user_id} (scope={scope}). Removed from active list.")
 
+    # Convenience: used elsewhere when the local user sends a POST
     def send_post(self, user, content: str, ttl: int = 3600) -> bool:
         now = int(time.time())
         exp = now + ttl
@@ -143,7 +131,7 @@ class MessageRouter:
             "CONTENT": content,
             "TTL": ttl,
             "MESSAGE_ID": mid,
-            "TOKEN": token,              # scope must be 'broadcast'
+            "TOKEN": token,  # scope must be 'broadcast'
         }
         msg = build_message(fields)
         return self.network_manager.send_broadcast(msg)
