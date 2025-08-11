@@ -218,29 +218,19 @@ class GameService:
             "TOKEN": f"{user.user_id}|{ts_mv+3600}|game",
         }
         return self._send_with_ack(opponent_id, move_fields)
-
-    
+        
     def accept_invite(self, invite: TicTacToeInvite, position: int, user: User) -> bool:
-        """
-        Accept an incoming invite by sending our first move.
-        We infer our symbol as the opposite of the inviter's symbol.
-        """
-        # My symbol is the opposite of the inviter's
         my_symbol = Symbol.O if invite.symbol == Symbol.X else Symbol.X
 
-        # Ensure local game state exists and has proper player mapping
         game = app_state.get_ttt_game(invite.game_id)
         if not game:
             game = TicTacToeGame(game_id=invite.game_id)
             other = Symbol.O if invite.symbol == Symbol.X else Symbol.X
-            game.players = {
-                invite.symbol: invite.from_user,
-                other: user.user_id,
-            }
+            game.players = {invite.symbol: invite.from_user, other: user.user_id}
             game.state = GameState.PENDING
             app_state.add_ttt_game(game)
 
-        # Optional: basic turn guard for nicer UX
+        # guard turn just for UX; if MOVE from X hasn’t landed yet, this will say “not your turn”
         if game.next_symbol != my_symbol:
             if getattr(self.network_manager, "verbose", False):
                 print(f"[GAME] Not your turn yet in {invite.game_id} "
@@ -249,9 +239,9 @@ class GameService:
 
         ok = self.send_move(invite.game_id, position, user)
         if ok:
-            # We responded; no need to keep the invite around
             app_state.remove_ttt_invite(invite.from_user, invite.game_id)
         return ok
+
 
     
     def reject_invite(self, invite: TicTacToeInvite, user: User) -> bool:

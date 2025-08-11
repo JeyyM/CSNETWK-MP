@@ -52,27 +52,52 @@ class MessageRouter:
             
             "REVOKE": self._handle_revoke
         }
+
+        self.ack_types = {"DM", "TICTACTOE_INVITE", "TICTACTOE_MOVE",
+            "FILE_OFFER", "FILE_CHUNK"}
     
     def route_message(self, msg: dict, addr: tuple) -> None:
-        message_type = msg.get("TYPE", "")
+        mtype = msg.get("TYPE", "")
 
-        # Token check for FILE_* too (before short-circuit)
-        if message_type.startswith("FILE_"):
+        # Fast-path types that shouldn't go through token validation
+        if mtype == "ACK":
+            self._handle_ack(msg, addr)
+            return
+        if mtype == "REVOKE":
+            self._handle_revoke(msg, addr)
+            return
+
+        # FILE_*: validate, auto-ACK if reliable, then hand off to file handler
+        if mtype.startswith("FILE_"):
             if not require_valid_token(msg, addr, self.verbose):
                 return
+            mid = msg.get("MESSAGE_ID")
+            if mid and mtype in self.ack_types:
+                self.network_manager.send_ack(mid, addr)
+                if self.verbose:
+                    print(f"[ACK] Sent ACK for {mid} to {addr[0]}")
             handle_file_message(msg, addr)
             return
 
-        # Centralized token enforcement for everything else
+        # Everything else: centralized token enforcement (no-op for PING/PROFILE per validator)
         if not require_valid_token(msg, addr, self.verbose):
             return
 
-        handler = self.handlers.get(message_type)
+        # Auto-ACK reliable message types (INVITE/MOVE/DM, etc.)
+        mid = msg.get("MESSAGE_ID")
+        if mid and mtype in self.ack_types:
+            self.network_manager.send_ack(mid, addr)
+            if self.verbose:
+                print(f"[ACK] Sent ACK for {mid} to {addr[0]}")
+
+        # Route to handler
+        handler = self.handlers.get(mtype)
         if handler:
             handler(msg, addr)
         else:
             if self.verbose:
-                print(f"⚠️ Unknown message type: {message_type}")
+                print(f"⚠️ Unknown message type: {mtype}")
+
     
     def _handle_ack(self, msg: dict, addr: tuple) -> None:
         mid = msg.get("MESSAGE_ID")
