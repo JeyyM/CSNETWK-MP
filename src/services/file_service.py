@@ -36,6 +36,10 @@ class FileService:
             print(f"File not found: {file_path}")
             return None
 
+        if to_uid == self.user.user_id:
+            print("Cannot send file to yourself.")
+            return None
+
         filesize = os.path.getsize(file_path)
         filename = os.path.basename(file_path)
         fileid = uuid.uuid4().hex[:8]
@@ -60,10 +64,7 @@ class FileService:
             "MESSAGE_ID": uuid.uuid4().hex[:8],
         }
 
-        file_offer_msg = build_message(fields)
-
-        self.network.send_broadcast(file_offer_msg)
-
+        # Do NOT broadcast file offers; only send unicast to the recipient
         sent = self.network.send_unicast(build_message(fields), to_uid)
         if not sent:
             print("Failed to send FILE_OFFER.")
@@ -111,6 +112,10 @@ class FileService:
         total = meta["total_chunks"]
         idx = 0
 
+        if to_uid == self.user.user_id:
+            print("Not sending file chunks to yourself.")
+            return
+
         try:
             with open(path, "rb") as f:
                 while True:
@@ -132,10 +137,7 @@ class FileService:
                         "TIMESTAMP": str(int(time.time())),
                     }
 
-                    file_chunk_msg = build_message(fields)
-
-                    self.network.send_broadcast(file_chunk_msg)
-
+                    # Do NOT broadcast file chunks; only send unicast to the recipient
                     sent = self.network.send_unicast(build_message(fields), to_uid)
                     if not sent:
                         # retry once
@@ -153,9 +155,12 @@ class FileService:
 
     def handle_file_accept(self, msg: dict, addr: tuple) -> None:
         fileid = msg.get("FILEID")
+        # Ignore FILE_ACCEPT from self
+        if msg.get("FROM") == self.user.user_id:
+            return
         meta = self.outgoing.get(fileid)
         if not meta:
-            print(f"[FILE] ACCEPT for unknown fileid {fileid}")
+            # Silently ignore unknown fileid from other users
             return
         meta["accept_event"].set()
         print(f"[FILE] Offer {fileid} accepted by {meta['to']} - starting transfer")
@@ -288,6 +293,17 @@ class FileService:
             return
 
         print(f"\nReceived file: {out_path}")
+        # send FILE_RECEIVED back
+        fields = {
+            "TYPE": "FILE_RECEIVED",
+            "FROM": self.user.user_id,
+            "TO": rec["from"],
+            "FILEID": fileid,
+            "STATUS": "COMPLETE",
+            "TIMESTAMP": str(int(time.time())),
+            "MESSAGE_ID": uuid.uuid4().hex[:8],
+        }
+        self.network.send_unicast(build_message(fields), rec["from"])
         # send FILE_RECEIVED back
         fields = {
             "TYPE": "FILE_RECEIVED",
