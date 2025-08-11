@@ -225,7 +225,7 @@ class LSNPApplication:
     
     def _on_incoming_offer(self, fileid: str, offer: dict) -> None:
         from_user = offer.get("from", "").split("@")[0]
-        print(f"\n📂 Incoming file offer {fileid} from {from_user}: {offer.get('filename')} ({offer.get('filesize')} bytes)")
+        print(f"\nIncoming file offer {fileid} from {from_user}: {offer.get('filename')} ({offer.get('filesize')} bytes)")
         print("Open Files menu to accept or reject.")
 
     def logout(self) -> None:

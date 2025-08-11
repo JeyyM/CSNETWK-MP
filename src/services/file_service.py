@@ -33,7 +33,7 @@ class FileService:
     # ---------------- Sender side ----------------
     def offer_file(self, to_uid: str, file_path: str, description: str = "") -> Optional[str]:
         if not os.path.isfile(file_path):
-            print(f"❌ File not found: {file_path}")
+            print(f"File not found: {file_path}")
             return None
 
         filesize = os.path.getsize(file_path)
@@ -66,7 +66,7 @@ class FileService:
 
         sent = self.network.send_unicast(build_message(fields), to_uid)
         if not sent:
-            print("❌ Failed to send FILE_OFFER.")
+            print("Failed to send FILE_OFFER.")
             return None
 
         self.outgoing[fileid] = {
@@ -94,7 +94,7 @@ class FileService:
         accepted = meta["accept_event"].wait(timeout=OFFER_TIMEOUT)
         if not accepted:
             meta["state"] = "timed_out"
-            print(f"⚠️ Offer {fileid} timed out (no accept).")
+            print(f"Offer {fileid} timed out (no accept).")
             self.outgoing.pop(fileid, None)
             return
         meta["state"] = "sending"
@@ -144,11 +144,11 @@ class FileService:
                     idx += 1
                     time.sleep(0.01)
         except Exception as e:
-            print(f"❌ Error while sending chunks for {fileid}: {e}")
+            print(f"Error while sending chunks for {fileid}: {e}")
             self.outgoing.pop(fileid, None)
             return
 
-        print(f"📤 Finished sending file {meta['filename']} -> {to_uid}")
+        print(f"Finished sending file {meta['filename']} -> {to_uid}")
         meta["state"] = "sent"
 
     def handle_file_accept(self, msg: dict, addr: tuple) -> None:
@@ -158,7 +158,7 @@ class FileService:
             print(f"[FILE] ACCEPT for unknown fileid {fileid}")
             return
         meta["accept_event"].set()
-        print(f"[FILE] Offer {fileid} accepted by {meta['to']} — starting transfer")
+        print(f"[FILE] Offer {fileid} accepted by {meta['to']} - starting transfer")
 
     def handle_file_received(self, msg: dict, addr: tuple) -> None:
         fileid = msg.get("FILEID")
@@ -204,7 +204,7 @@ class FileService:
     def accept_offer(self, fileid: str) -> bool:
         offer = self.incoming_offers.get(fileid)
         if not offer:
-            print("❌ No such offer.")
+            print("No such offer.")
             return False
         sender = offer["from"]
         ts = int(time.time())
@@ -228,13 +228,13 @@ class FileService:
             }
             self.incoming_offers.pop(fileid, None)
             return True
-        print("❌ Failed to send FILE_ACCEPT.")
+        print("Failed to send FILE_ACCEPT.")
         return False
 
     def reject_offer(self, fileid: str) -> bool:
         offer = self.incoming_offers.pop(fileid, None)
         if not offer:
-            print("❌ No such offer.")
+            print("No such offer.")
             return False
         sender = offer["from"]
         ts = int(time.time())
@@ -284,10 +284,10 @@ class FileService:
                 for i in range(rec["total_chunks"]):
                     f.write(rec["chunks"][i])
         except Exception as e:
-            print(f"❌ Failed to assemble file {rec['filename']}: {e}")
+            print(f"Failed to assemble file {rec['filename']}: {e}")
             return
 
-        print(f"\n✅ Received file: {out_path}")
+        print(f"\nReceived file: {out_path}")
         # send FILE_RECEIVED back
         fields = {
             "TYPE": "FILE_RECEIVED",

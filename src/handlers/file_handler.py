@@ -18,7 +18,7 @@ def handle_file_message(msg: dict, addr: Tuple[str,int]) -> None:
     elif mtype == "FILE_REJECT":
         fid = msg.get("FILEID")
         if fid and fid in file_service.outgoing:
-            print(f"⚠️ Remote rejected file offer {fid}")
+            print(f"Remote rejected file offer {fid}")
             file_service.outgoing.pop(fid, None)
     elif mtype == "FILE_CHUNK":
         file_service.handle_file_chunk_incoming(msg, addr)

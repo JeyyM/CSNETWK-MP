@@ -227,13 +227,13 @@ class GameMenu:
                 if winner:
                     winner_id = updated.players.get(winner)
                     if winner_id == self.user.user_id:
-                        print("🎉 You won!")
+                        print("You won!")
                     else:
                         peer = self.user_service.get_peer(winner_id)
                         winner_name = peer.display_name if peer else winner_id
-                        print(f"😞 {winner_name} won!")
+                        print(f"{winner_name} won!")
                 elif updated.is_draw():
-                    print("🤝 It's a draw!")
+                    print("It's a draw!")
             else:
                 print("Move send failed.")
         except ValueError:

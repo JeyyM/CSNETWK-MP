@@ -136,7 +136,7 @@ class GameService:
             # Optional: print locally
             if getattr(self.network_manager, "verbose", False):
                 print(game.render_board())
-                print(f"[GAME] {('DRAW' if is_draw else f'{player_symbol.value} WINS')} — game {game_id} finished.")
+                print(f"[GAME] {('DRAW' if is_draw else f'{player_symbol.value} WINS')} - game {game_id} finished.")
 
             # Clean up local state so the game no longer appears active
             app_state.remove_ttt_game(game_id)

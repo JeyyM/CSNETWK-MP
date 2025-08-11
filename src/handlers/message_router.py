@@ -67,7 +67,7 @@ class MessageRouter:
             if mid:
                 app_state.resolve_ack(mid)
                 if self.verbose:
-                    print(f"✅ ACK received for {mid} from {addr[0]}")
+                    print(f"ACK received for {mid} from {addr[0]}")
             return
         
         # Per-RFC auth: validate IP match + token scope/expiry/revocation per TYPE.

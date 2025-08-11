@@ -32,9 +32,9 @@ class UDPListener:
                 break
             except OSError as e:
                 if retry == 4:
-                    print(f"❌ Failed to bind to port {PORT} after 5 attempts: {e}")
+                    print(f"Failed to bind to port {PORT} after 5 attempts: {e}")
                     return
-                print(f"⚠️  Retry {retry + 1}: Failed to bind to port {PORT}, retrying in 1 second...")
+                print(f"Retry {retry + 1}: Failed to bind to port {PORT}, retrying in 1 second...")
                 time.sleep(1)
 
         print(f"Listening on UDP port {PORT}")
@@ -47,7 +47,7 @@ class UDPListener:
                     raw = data.decode("utf-8", errors="ignore")
                 except Exception as e:
                     if self.verbose:
-                        print(f"⚠️  Receive error: {e}")
+                        print(f"Receive error: {e}")
                     continue
 
                 msg = parse_message(raw)

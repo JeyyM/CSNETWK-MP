@@ -56,10 +56,10 @@ class DmHandler:
         # Display message
         active_dm_user = app_state.get_active_dm_user()
         if active_dm_user == from_user:
-            print(f"\n💬 {sender_display}: {content}")
+            print(f"\n{sender_display}: {content}")
             print(f"[You → {sender_display}]: ", end="", flush=True)
         else:
-            print(f"\n💬 New message from {sender_display}: {content}")
+            print(f"\nNew message from {sender_display}: {content}")
             print("> ", end="", flush=True)
 
         # Send ACK if message has ID

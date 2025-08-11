@@ -82,7 +82,7 @@ class NetworkManager:
                 print(f"[DEBUG] Sent message to {user_id} at {ip}")
             return True
         except Exception as e:
-            print(f"❌ Failed to send to {user_id} ({ip}): {e}")
+            print(f"Failed to send to {user_id} ({ip}): {e}")
             return False
         finally:
             sock.close()
@@ -103,7 +103,7 @@ class NetworkManager:
                     print("\n\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n\n" + message + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n")
                     print(f"[DEBUG] Broadcast sent to {bcast}")
             except Exception as e:
-                print(f"⚠️ Broadcast to {bcast} failed: {e}")
+                print(f"Broadcast to {bcast} failed: {e}")
         
         sock.close()
     
@@ -128,9 +128,9 @@ class NetworkManager:
             sock.sendto(ack_msg.encode("utf-8"), (addr[0], PORT))
             if self.verbose:
                 print("\n\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n\n" + ack_msg + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n")
-                print(f"✅ Sent ACK for {message_id} to {addr}")
+                print(f"Sent ACK for {message_id} to {addr}")
         except Exception as e:
             if self.verbose:
-                print(f"❌ Failed to send ACK: {e}")
+                print(f"Failed to send ACK: {e}")
         finally:
             sock.close()
