@@ -6,7 +6,6 @@ import time
 from ..models.user import Peer, DirectMessage, Post
 from ..models.game import TicTacToeInvite, TicTacToeGame
 
-
 class ApplicationState:
     """Centralized application state manager."""
     
@@ -186,9 +185,15 @@ class ApplicationState:
             return self._ttt_games.get(game_id)
     
     def remove_ttt_game(self, game_id: str) -> None:
-        """Remove a Tic Tac Toe game."""
+        """Remove a Tic Tac Toe game and any pending invites that reference it."""
         with self._lock:
+            # Remove the game
             self._ttt_games.pop(game_id, None)
+
+            # Remove any invites with this game_id (keys are (from_user, game_id))
+            to_delete = [k for k in self._ttt_invites.keys() if k[1] == game_id]
+            for k in to_delete:
+                self._ttt_invites.pop(k, None)
     
     def get_ttt_games_for_user(self, user_id: str) -> List[TicTacToeGame]:
         """Get all games involving a specific user."""
@@ -206,7 +211,6 @@ class ApplicationState:
     def register_incoming_file_listener(self, callback: Callable[[str, dict], None]):
         """Callback signature: fn(fileid: str, offer: dict)"""
         self._incoming_file_listeners.append(callback)
-
 
 # Global application state instance
 app_state = ApplicationState()

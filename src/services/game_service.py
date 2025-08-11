@@ -10,7 +10,6 @@ from ..network.client import NetworkManager
 from ..network.protocol import build_message
 from ..core.state import app_state
 
-
 class GameService:
     """Service for game-related operations."""
     
@@ -50,26 +49,28 @@ class GameService:
         return game_id if success else None
     
     def send_move(self, game_id: str, position: int, user: User) -> bool:
-        """Send a game move (apply locally first so the sender sees it immediately)."""
+        """Send a game move. Apply locally first so the sender sees it immediately.
+        If the move ends the game, send TICTACTOE_RESULT and clean up.
+        """
         game = app_state.get_ttt_game(game_id)
         if not game:
             if getattr(self.network_manager, "verbose", False):
                 print(f"[GAME] No local state for game {game_id}")
             return False
-        
+
         player_symbol = game.get_player_symbol(user.user_id)
         if not player_symbol:
             if getattr(self.network_manager, "verbose", False):
                 print(f"[GAME] You are not a participant in {game_id}")
             return False
-        
+
         opponent_id = game.get_opponent(user.user_id)
         if not opponent_id:
             if getattr(self.network_manager, "verbose", False):
                 print(f"[GAME] Opponent not set for {game_id}")
             return False
 
-        # Enforce turn and position validity locally
+        # Turn + position checks
         if game.next_symbol != player_symbol:
             if getattr(self.network_manager, "verbose", False):
                 print(f"[GAME] Not your turn ({player_symbol.value}) in {game_id}")
@@ -79,14 +80,65 @@ class GameService:
                 print(f"[GAME] Invalid position {position} in {game_id}")
             return False
 
-        # Apply move locally so the sender's board updates immediately
+        # Apply locally so sender's board updates immediately
         game.make_move(position, player_symbol)
         game.state = GameState.ACTIVE
 
-        # Build & send the move packet
+        # Check end state locally
+        winner = game.check_winner()
+        is_draw = game.is_draw()
+
+        if winner or is_draw:
+            # Mark finished and announce result to opponent
+            game.state = GameState.FINISHED
+
+            # Find winning line if any
+            winning_line = None
+            if winner:
+                wins = [
+                    [0,1,2],[3,4,5],[6,7,8],
+                    [0,3,6],[1,4,7],[2,5,8],
+                    [0,4,8],[2,4,6]
+                ]
+                for combo in wins:
+                    if all(game.board[i] == winner for i in combo):
+                        winning_line = ",".join(map(str, combo))
+                        break
+
+            message_id = uuid.uuid4().hex[:8]
+            timestamp  = int(time.time())
+            token      = f"{user.user_id}|{timestamp+3600}|game"
+
+            fields = {
+                "TYPE": "TICTACTOE_RESULT",
+                "FROM": user.user_id,
+                "TO": opponent_id,
+                "GAMEID": game_id,
+                "MESSAGE_ID": message_id,
+                "RESULT": "DRAW" if is_draw else "WIN",   # sender's perspective
+                "SYMBOL": player_symbol.value,            # winner's symbol if WIN; last mover's if DRAW
+                "TIMESTAMP": timestamp,
+                "TOKEN": token,
+            }
+            if winning_line:
+                fields["WINNING_LINE"] = winning_line
+
+            msg = build_message(fields)
+            self.network_manager.send_unicast(msg, opponent_id)
+
+            # Optional: print locally
+            if getattr(self.network_manager, "verbose", False):
+                print(game.render_board())
+                print(f"[GAME] {('DRAW' if is_draw else f'{player_symbol.value} WINS')} — game {game_id} finished.")
+
+            # Clean up local state so the game no longer appears active
+            app_state.remove_ttt_game(game_id)
+            return True
+
+        # Otherwise, send the MOVE packet
         message_id = uuid.uuid4().hex[:8]
-        timestamp = int(time.time())
-        token = f"{user.user_id}|{timestamp+3600}|game"
+        timestamp  = int(time.time())
+        token      = f"{user.user_id}|{timestamp+3600}|game"
 
         fields = {
             "TYPE": "TICTACTOE_MOVE",
