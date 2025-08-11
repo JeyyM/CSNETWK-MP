@@ -19,6 +19,7 @@ class MessageRouter:
     
     def __init__(self, network_manager: NetworkManager, verbose: bool = False):
         self.verbose = verbose
+        self.network_manager = network_manager 
         
         # Initialize handlers
         self.ping_handler = PingHandler(verbose)
