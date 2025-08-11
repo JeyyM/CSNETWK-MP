@@ -36,7 +36,7 @@ def _sender_user_id(msg_type: str, msg: dict) -> str | None:
 
 def require_valid_token(msg: dict, addr: tuple, verbose: bool) -> bool:
     mtype = msg.get("TYPE", "")
-    expected_scope = SCOPE_MAP.get(mtype, None)
+    expected_scope = EXPECTED_SCOPE.get(mtype, None)
 
     # Source IP vs declared user@ip check (Security Considerations)
     uid = _sender_user_id(mtype, msg)
