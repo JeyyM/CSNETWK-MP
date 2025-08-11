@@ -1,7 +1,6 @@
 from ..core.state import app_state
 from ..network.client import extract_ip_from_user_id
 
-# Which message types require which token scope
 EXPECTED_SCOPE = {
     "DM": "chat",
     "POST": "broadcast",
@@ -10,25 +9,20 @@ EXPECTED_SCOPE = {
     "UNFOLLOW": "follow",
     "FILE_OFFER": "file",
     "FILE_CHUNK": "file",
-    "FILE_RECEIVED": None,        # no token in spec
+    "FILE_RECEIVED": None,
     "GROUP_CREATE": "group",
     "GROUP_UPDATE": "group",
     "GROUP_MESSAGE": "group",
     "TICTACTOE_INVITE": "game",
     "TICTACTOE_MOVE": "game",
     "TICTACTOE_RESULT": "game",
-    "PROFILE": None,              # no token
-    "PING": None,                 # no token
-    "ACK": None,                  # no token
-    "REVOKE": None,               # allow through; it *is* the revocation
+    "PROFILE": None,
+    "PING": None,
+    "ACK": None,
+    "REVOKE": None,
 }
 
-ID_FIELD_MAP = {
-    "POST": "USER_ID",
-    "PROFILE": "USER_ID",
-    "PING": "USER_ID",
-    # everything else uses FROM
-}
+ID_FIELD_MAP = {"POST": "USER_ID", "PROFILE": "USER_ID", "PING": "USER_ID"}
 
 def _sender_user_id(msg_type: str, msg: dict) -> str | None:
     field = ID_FIELD_MAP.get(msg_type, "FROM")
@@ -38,16 +32,21 @@ def require_valid_token(msg: dict, addr: tuple, verbose: bool) -> bool:
     mtype = msg.get("TYPE", "")
     expected_scope = EXPECTED_SCOPE.get(mtype, None)
 
-    # Source IP vs declared user@ip check (Security Considerations)
     uid = _sender_user_id(mtype, msg)
-    if uid and "@" in uid:
-        declared_ip = uid.split("@", 1)[1]
+    declared_ip = uid.split("@", 1)[1] if uid and "@" in uid else None
+
+    # Only ENFORCE IP match for token-bearing message types
+    if expected_scope is not None and declared_ip:
         if declared_ip != addr[0]:
             if verbose:
                 print(f"DROP ! {mtype}: IP mismatch {declared_ip} != {addr[0]}")
             return False
+    else:
+        # Presence/ack/revoke/etc.: warn but accept
+        if verbose and declared_ip and declared_ip != addr[0]:
+            print(f"WARN ? {mtype}: IP mismatch {declared_ip} != {addr[0]} (accepted)")
 
-    # If this type doesn't use tokens, allow it through
+    # Types without tokens are allowed through
     if expected_scope is None:
         return True
 
