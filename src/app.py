@@ -148,6 +148,21 @@ class LSNPApplication:
                     self.main_menu.toggle_verbose()
                     # Update network manager verbose setting
                     self.network_manager.verbose = self.user.verbose
+                    # Update all handlers/services that use verbose
+                    if self.message_router:
+                        self.message_router.verbose = self.user.verbose
+                        # Update handler instances inside the router
+                        self.message_router.ping_handler.verbose = self.user.verbose
+                        self.message_router.profile_handler.verbose = self.user.verbose
+                        self.message_router.dm_handler.verbose = self.user.verbose
+                        self.message_router.post_handler.verbose = self.user.verbose
+                        self.message_router.like_handler.verbose = self.user.verbose
+                        self.message_router.game_handler.verbose = self.user.verbose
+                        self.message_router.group_handler.verbose = self.user.verbose
+                    if self.listener:
+                        self.listener.verbose = self.user.verbose
+                    if self.file_service:
+                        self.file_service.verbose = self.user.verbose
                 
                 elif choice == "1":
                     self.peer_menu.show_peers()

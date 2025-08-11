@@ -53,8 +53,12 @@ class MessageRouter:
             "FILE_REJECT": handle_file_message,
             "FILE_CHUNK": handle_file_message,
             "FILE_RECEIVED": handle_file_message,
-            
+
             "REVOKE": self._handle_revoke,
+
+            # Add stubs for FOLLOW and UNFOLLOW to suppress unhandled message warnings
+            "FOLLOW": lambda msg, addr: None,
+            "UNFOLLOW": lambda msg, addr: None,
         }
     
     def route_message(self, msg: dict, addr: tuple) -> None:
