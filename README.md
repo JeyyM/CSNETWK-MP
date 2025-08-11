@@ -79,8 +79,6 @@ CSNETWK-MP/
    # Should show Python 3.7 or higher
    ```
 
-3. **No additional dependencies required** - The application uses only Python standard library modules
-
 ## Network Setup
 
 ### Windows (PowerShell as Administrator)
@@ -194,3 +192,9 @@ FIELD_NAME: [field_value]
 - **Automatic token generation** for different message types
 - **Token expiration** and renewal mechanisms
 - **Scope verification** (broadcast, chat, presence, file, game)
+
+## AI Disclaimer
+
+This project utilized AI assistance in a limited capacity for specific development tasks. AI tools were used to identifying appropriate Python standard library modules and understanding their documentation. Additionally, it was used in the restructuring and organizing of code into clean, maintainable modules and functions.
+
+However, all core functionality, protocol design, network architecture, and application logic were developed independently. The LSNP protocol specification and implementation represent original work by the development team.
