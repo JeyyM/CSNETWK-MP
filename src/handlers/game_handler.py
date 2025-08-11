@@ -15,6 +15,10 @@ class GameHandler:
         self.verbose = verbose
         
     def handle_invite(self, msg: dict, addr: tuple) -> None:
+        mid = msg.get("MESSAGE_ID")
+        if mid:
+            self.network_manager.send_ack(mid, addr)
+        
         from_user = msg.get("FROM")
         to_user   = msg.get("TO")
         game_id   = msg.get("GAMEID")
@@ -52,6 +56,10 @@ class GameHandler:
     
     def handle_move(self, msg: dict, addr: tuple) -> None:
         """Handle incoming TICTACTOE_MOVE (apply on receiver, finish if needed)."""
+        mid = msg.get("MESSAGE_ID")
+        if mid:
+            self.network_manager.send_ack(mid, addr)
+        
         from_user = msg.get("FROM")
         game_id   = msg.get("GAMEID")
         try:

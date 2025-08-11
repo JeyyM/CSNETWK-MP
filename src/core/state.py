@@ -1,5 +1,6 @@
 """Central application state management."""
 from typing import Dict, List, Set, Optional, Callable
+import threading
 from threading import Lock
 import time
 
@@ -29,6 +30,7 @@ class ApplicationState:
         # File offer listeners (UI callbacks)
         # Callback signature: fn(fileid: str, offer: dict)
         self._incoming_file_listeners: List[Callable[[str, dict], None]] = []
+        self._pending_acks: Dict[str, threading.Event] = {}
     
     # Peer management
     def add_peer(self, peer: Peer) -> None:
@@ -200,6 +202,31 @@ class ApplicationState:
         with self._lock:
             return [game for game in self._ttt_games.values() 
                    if user_id in game.players.values()]
+    
+    def mark_ack_pending(self, message_id: str) -> threading.Event:
+        """Create/register an Event for this message_id ACK."""
+        evt = threading.Event()
+        with self._lock:
+            self._pending_acks[message_id] = evt
+        return evt
+
+    def resolve_ack(self, message_id: str) -> None:
+        """Signal that ACK arrived for message_id (idempotent)."""
+        with self._lock:
+            evt = self._pending_acks.pop(message_id, None)
+        if evt:
+            evt.set()
+
+    def wait_for_ack(self, message_id: str, timeout: float) -> bool:
+        """Block up to timeout waiting for the ACK Event."""
+        with self._lock:
+            evt = self._pending_acks.get(message_id)
+        return evt.wait(timeout) if evt else False
+
+    def drop_ack_wait(self, message_id: str) -> None:
+        """Remove pending ACK without setting it (cleanup after giving up)."""
+        with self._lock:
+            self._pending_acks.pop(message_id, None)
     
     def notify_incoming_file_offer(self, fileid: str, offer: dict) -> None:
         for cb in self._incoming_file_listeners:
