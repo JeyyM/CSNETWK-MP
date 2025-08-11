@@ -71,7 +71,7 @@ class LSNPApplication:
             self.message_router.route_message,
             self.user.verbose
         )
-        
+        core_state.app_state.set_local_user(self.user.user_id)
         
         ts = int(time.time())
         presence_token = f"{self.user.user_id}|{ts + 3600}|presence"  # 1h session
