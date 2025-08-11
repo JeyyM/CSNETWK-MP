@@ -14,9 +14,9 @@ class MessageService:
     
     def __init__(self, network_manager: NetworkManager):
         self.network_manager = network_manager
-    
+
     def create_post(self, content: str, user: User) -> bool:
-        """Create and broadcast a new post."""
+        import time, uuid
         message_id = uuid.uuid4().hex[:8]
         timestamp = int(time.time())
         ttl = 3600
@@ -33,7 +33,21 @@ class MessageService:
         }
         post_msg = build_message(fields)
         self.network_manager.send_broadcast(post_msg)
+
+        # <-- add this so the author immediately sees their own post
+        app_state.add_post(
+            Post(
+                user_id=user.user_id,
+                display_name=user.display_name,
+                content=content,
+                timestamp=timestamp,
+                message_id=message_id,
+                likes=set(),
+                ttl=ttl,
+            )
+        )
         return True
+
     
     def like_post(self, post: Post, user: User, is_like: bool = True) -> bool:
         """Like or unlike a post."""
