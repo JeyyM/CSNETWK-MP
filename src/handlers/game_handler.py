@@ -19,24 +19,36 @@ class GameHandler:
         to_user   = msg.get("TO")
         game_id   = msg.get("GAMEID")
         symbol    = Symbol.X if msg.get("SYMBOL","X") == "X" else Symbol.O
+        other     = Symbol.O if symbol == Symbol.X else Symbol.X  # <-- move outside so it's always defined
 
         if from_user:
             app_state.update_peer_ip(from_user, addr[0])
 
+        # Ensure local game exists
         game = app_state.get_ttt_game(game_id)
         if not game:
             game = TicTacToeGame(game_id=game_id)
-            # inviter uses `symbol`, receiver uses the other one
-            other = Symbol.O if symbol == Symbol.X else Symbol.X
             game.players = {symbol: from_user, other: to_user}
             game.state = GameState.PENDING
             app_state.add_ttt_game(game)
 
+        # NEW: save the invite so UI can show Accept/Reject
+        invite = TicTacToeInvite(
+            from_user=from_user,
+            to_user=to_user,
+            game_id=game_id,
+            symbol=symbol,
+            timestamp=float(msg.get("TIMESTAMP", time.time())),
+            message_id=msg.get("MESSAGE_ID",""),
+            token=msg.get("TOKEN",""),
+        )
+        app_state.add_ttt_invite(invite)
+
         if self.verbose:
             print("\n[GAME] You received a Tic-Tac-Toe invite!")
-            print(game.render_board())  # shows 0–8 indices on empties
+            print(game.render_board())
             print(f"[GAME] You will play as {other.value}.")
-            # your UI can then prompt: "Enter your first move [0-8] to ACCEPT, or 'n' to reject:"
+
     
     def handle_move(self, msg: dict, addr: tuple) -> None:
         """Handle incoming TICTACTOE_MOVE (apply on receiver, finish if needed)."""
@@ -104,25 +116,22 @@ class GameHandler:
             app_state.remove_ttt_game(game_id)
     
     def handle_result(self, msg: dict, addr: tuple) -> None:
-        """Handle incoming TICTACTOE_RESULT (finalize + cleanup)."""
         from_user = msg.get("FROM")
         game_id   = msg.get("GAMEID")
-        result    = msg.get("RESULT", "DRAW")     # WIN, LOSS, DRAW, FORFEIT (sender's perspective)
-        symbol    = msg.get("SYMBOL")             # winner's symbol if WIN; last mover for DRAW
-        # winning_line = msg.get("WINNING_LINE")  # optional
+        result    = msg.get("RESULT", "DRAW")   # WIN, LOSS, DRAW, FORFEIT
+        symbol    = msg.get("SYMBOL")           # winner's symbol if WIN; last mover for DRAW
 
         if from_user:
             app_state.update_peer_ip(from_user, addr[0])
 
         game = app_state.get_ttt_game(game_id)
+
+        # Show final board + message even if not verbose, so users actually see it.
         if game:
-            # Show final board if you still have it
-            if self.verbose:
-                print(game.render_board())
-                print(f"[GAME] Result received for {game_id}: {result} (symbol={symbol})")
+            print(game.render_board())
+        print(f"[GAME] Result for {game_id}: {result}" + (f" (winner {symbol})" if result == "WIN" and symbol else ""))
 
-            # Mark finished and clean up
+        # Mark finished & clean up (idempotent)
+        if game:
             game.state = GameState.FINISHED
-
-        # Remove game state regardless (idempotent)
         app_state.remove_ttt_game(game_id)

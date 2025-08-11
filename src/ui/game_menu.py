@@ -184,7 +184,6 @@ class GameMenu:
                 return
             print("Please choose A, R, or B.")
 
-    
     def _play_game(self, game: TicTacToeGame) -> None:
         """Play an active game."""
         print(game.render_board())
