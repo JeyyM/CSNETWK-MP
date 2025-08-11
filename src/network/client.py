@@ -1,6 +1,7 @@
 """Network communication utilities."""
 import socket
 import re
+import time
 from typing import Optional
 
 from .protocol import build_message
@@ -103,21 +104,32 @@ class NetworkManager:
         sock.close()
     
     def send_ack(self, message_id: str, addr: tuple) -> None:
-        """Send an ACK message."""
+        """Send an ACK message with retry."""
         ack_fields = {
             "TYPE": "ACK",
             "MESSAGE_ID": message_id,
-            "STATUS": "RECEIVED"
+            "STATUS": "RECEIVED",
+            "TIMESTAMP": int(time.time())
         }
         ack_msg = build_message(ack_fields)
         
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            sock.sendto(ack_msg.encode("utf-8"), addr)
-            if self.verbose:
-                print(f"✅ Sent ACK for {message_id} to {addr}")
-        except Exception as e:
-            if self.verbose:
-                print(f"❌ Failed to send ACK: {e}")
-        finally:
-            sock.close()
+        sock.settimeout(1.0)  # 1 second timeout
+        
+        # Try to send ACK up to 3 times
+        for attempt in range(3):
+            try:
+                sock.sendto(ack_msg.encode("utf-8"), addr)
+                if self.verbose:
+                    print(f"✅ Sent ACK for {message_id} to {addr} (attempt {attempt+1})")
+                sock.close()
+                return
+            except Exception as e:
+                if self.verbose:
+                    print(f"❌ Failed to send ACK (attempt {attempt+1}): {e}")
+                if attempt < 2:  # Don't sleep on last attempt
+                    time.sleep(0.5)
+        
+        if self.verbose:
+            print(f"❌ Failed to send ACK after 3 attempts")
+        sock.close()

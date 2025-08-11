@@ -297,8 +297,6 @@ class GameService:
         
         return ", ".join(status_parts) if status_parts else "Idle"
 
-
-
     def _send_with_ack(self, to_user_id: str, fields: dict) -> bool:
         """Send a message and wait for ACK with retries."""
         msg = build_message(fields)
@@ -306,19 +304,29 @@ class GameService:
         evt = app_state.mark_ack_pending(mid)
 
         for attempt in range(1, ACK_ATTEMPTS + 1):
-            self.network_manager.send_unicast(msg, to_user_id)
-            if getattr(self.network_manager, "verbose", False):
-                print(f"[ACK] Sent {fields['TYPE']} attempt {attempt}/%d mid={mid}" % ACK_ATTEMPTS)
-            if evt.wait(ACK_TIMEOUT):
+            try:
+                self.network_manager.send_unicast(msg, to_user_id)
                 if getattr(self.network_manager, "verbose", False):
-                    print(f"[ACK] Received ACK for {mid}")
-                return True
-            if getattr(self.network_manager, "verbose", False):
-                print(f"[ACK] Timeout waiting for {mid}, retrying...")
+                    print(f"[ACK] Sent {fields['TYPE']} attempt {attempt}/{ACK_ATTEMPTS} mid={mid}")
+                
+                # Wait for ACK
+                if evt.wait(ACK_TIMEOUT):
+                    if getattr(self.network_manager, "verbose", False):
+                        print(f"[ACK] Received ACK for {mid}")
+                    app_state.drop_ack_wait(mid)  # Clean up
+                    return True
+                
+                if getattr(self.network_manager, "verbose", False):
+                    print(f"[ACK] Timeout waiting for {mid}, retrying...")
+                
+            except Exception as e:
+                if getattr(self.network_manager, "verbose", False):
+                    print(f"[ACK] Send error on attempt {attempt}: {e}")
+                if attempt < ACK_ATTEMPTS:
+                    time.sleep(0.5)  # Short delay before retry
 
-        # give up
+        # Give up after all attempts
+        if getattr(self.network_manager, "verbose", False):
+            print(f"[ACK] Giving up on {mid} after {ACK_ATTEMPTS} attempts")
         app_state.drop_ack_wait(mid)
         return False
-    
-    
-    #
