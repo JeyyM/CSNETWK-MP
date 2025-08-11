@@ -145,43 +145,45 @@ class GameMenu:
         """Handle an incoming game invite."""
         inviter_peer = self.user_service.get_peer(invite.from_user)
         inviter_name = inviter_peer.display_name if inviter_peer else invite.from_user
-        
-        my_symbol = Symbol.O if invite.symbol == Symbol.X else Symbol.X
-        print(f"Invite detected (game {invite.game_id}). You are '{my_symbol.value}'.")
 
-        # Show a numbered board for context before the first move
-        existing = self.game_service.get_game(invite.game_id)
-        if existing:
-            print(existing.render_board())
+        my_symbol = Symbol.O if invite.symbol == Symbol.X else Symbol.X
+        print(f"\nInvite detected from {inviter_name} (game {invite.game_id}). You are '{my_symbol.value}'.")
+
+        # Show a numbered board for context
+        game = self.game_service.get_game(invite.game_id)
+        if game:
+            print(game.render_board())
         else:
             print(TicTacToeGame(game_id="preview").render_board())
-        
-        move = input("Enter your first move [0-8] to ACCEPT, or 'n' to reject: ").strip().lower()
-        
-        if move == "n":
-            success = self.game_service.reject_invite(invite, self.user)
-            if success:
-                print("Invite rejected.")
-            else:
-                print("Failed to reject invite.")
-            return
-        
-        try:
-            position = int(move)
-            if not (0 <= position <= 8):
-                raise ValueError("Position must be 0-8")
-            
-            success = self.game_service.accept_invite(invite, position, self.user)
-            if success:
-                print(f"Accepted invite. Played {position}.")
-                # Show the updated board
-                game = self.game_service.get_game(invite.game_id) or existing
-                if game:
-                    print(game.render_board())
-            else:
-                print("Failed to send your move.")
-        except ValueError:
-            print("Invalid input.")
+
+        while True:
+            choice = input("[A]ccept with move, [R]eject, [B]ack: ").strip().lower()
+            if choice == "b":
+                return
+            if choice == "r":
+                success = self.game_service.reject_invite(invite, self.user)
+                print("Invite rejected." if success else "Failed to reject invite.")
+                return
+            if choice == "a":
+                move = input("Enter your first move [0-8]: ").strip()
+                try:
+                    position = int(move)
+                    if not (0 <= position <= 8):
+                        raise ValueError
+                except ValueError:
+                    print("Invalid position. Must be 0–8.")
+                    continue
+                success = self.game_service.accept_invite(invite, position, self.user)
+                if success:
+                    print(f"Accepted invite. Played {position}.")
+                    updated = self.game_service.get_game(invite.game_id)
+                    if updated:
+                        print(updated.render_board())
+                else:
+                    print("Failed to send your move.")
+                return
+            print("Please choose A, R, or B.")
+
     
     def _play_game(self, game: TicTacToeGame) -> None:
         """Play an active game."""
