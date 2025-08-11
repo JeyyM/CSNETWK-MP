@@ -16,7 +16,7 @@ class PingService:
         self._profile_thread = None
         self._running = False
     
-    def start_ping_service(self, user: User, ping_interval: int = 30, profile_interval: int = 30) -> None:
+    def start_ping_service(self, user: User, ping_interval: int = 300, profile_interval: int = 300) -> None:
         """Start periodic ping and profile broadcasting."""
         self._running = True
         
