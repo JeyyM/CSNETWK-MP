@@ -248,8 +248,11 @@ class ApplicationState:
             else:
                 key = message.from_user          # legacy fallback
 
+            # Deduplicate by message_id
             if key not in self._dm_history:
                 self._dm_history[key] = []
+            if message.message_id and any(dm.message_id == message.message_id for dm in self._dm_history[key]):
+                return  # Already exists, skip
             self._dm_history[key].append(message)
 
     
