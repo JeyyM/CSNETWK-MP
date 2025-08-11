@@ -9,7 +9,7 @@ from .like_handler import LikeHandler
 from .game_handler import GameHandler
 from ..network.client import NetworkManager
 from ..handlers.file_handler import handle_file_message
-
+from ..utils.dedupe import seen_before
 
 class MessageRouter:
     """Routes incoming messages to appropriate handlers."""
