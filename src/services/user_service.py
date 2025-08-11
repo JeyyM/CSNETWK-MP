@@ -86,21 +86,39 @@ class UserService:
         """Get a specific peer."""
         return app_state.get_peer(user_id)
 
-    def logout(self) -> None:
-        """Broadcast REVOKE for every still-valid token we issued, then exit."""
-        tokens = app_state.get_revocable_tokens()
-        if not tokens and getattr(self.network_manager, "verbose", False):
-            print("[LOGOUT] No active tokens to revoke.")
+# Inside UserService
+
+    def logout(self):
+        """Log out the current user and broadcast revocation."""
+        if not self.user:
+            return
+
+        # Get all active tokens worth revoking
+        tokens = app_state.app_state.get_revocable_tokens()
+        if not tokens:
+            # No active token? create a short-lived one just to carry user_id in REVOKE
+            exp = int(time.time()) + 60
+            fake_token = f"{self.user.user_id}|{exp}|presence"
+            tokens = [fake_token]
 
         for tok in tokens:
-            fields = {
-                "TYPE": "REVOKE",
-                "TOKEN": tok,
-            }
-            msg = build_message(fields)
+            # Mark token revoked locally
+            app_state.app_state.revoke_token(tok)
+
+            # Broadcast revocation to peers
+            msg = build_message({"TYPE": "REVOKE", "TOKEN": tok})
             self.network_manager.send_broadcast(msg)
 
-        if getattr(self.network_manager, "verbose", False):
-            print(f"[LOGOUT] Sent REVOKE for {len(tokens)} token(s). Exiting...")
+        # Remove self from local peer list immediately
+        app_state.app_state.remove_peer(self.user.user_id)
 
-        sys.exit(0)
+        # Stop ping service so no further presence updates are sent
+        try:
+            self.ping_service.stop()
+        except Exception:
+            pass
+
+        # Clear session state
+        self.user = None
+        app_state.app_state._presence_token = None
+        print("[INFO] Logged out and presence revoked.")

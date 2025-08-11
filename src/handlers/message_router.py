@@ -97,8 +97,12 @@ class MessageRouter:
             return
 
         user_id, expiry, scope = parsed
-        app_state.revoke_token(tok)            # normal revocation (used by tokened actions)
-        app_state.suppress_peer(user_id, 60)   # hide from active-peers for ~1 minute
+
+        # Mark token revoked locally
+        app_state.revoke_token(tok)
+
+        # Remove the peer entirely from the active list
+        app_state.remove_peer(user_id)
 
         if self.verbose:
-            print(f"[REVOKE] From {user_id} (scope={scope}). Suppressed from active list.")
+            print(f"[REVOKE] From {user_id} (scope={scope}). Removed from active list.")
