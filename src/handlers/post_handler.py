@@ -4,6 +4,7 @@ import time
 from ..models.user import Post, Peer
 from ..core.state import app_state
 from ..utils.dedupe import seen_before  # <-- add this
+from ..network.protocol import build_message
 
 class PostHandler:
     """Handles POST messages."""
@@ -73,6 +74,3 @@ class PostHandler:
         
         # Add to feed
         app_state.add_post(post)
-        
-        if self.verbose:
-            print(f"POST from {display_name}: {content[:50]}...")

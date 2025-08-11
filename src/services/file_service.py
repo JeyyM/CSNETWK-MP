@@ -60,6 +60,10 @@ class FileService:
             "MESSAGE_ID": uuid.uuid4().hex[:8],
         }
 
+        file_offer_msg = build_message(fields)
+
+        self.network.send_broadcast(file_offer_msg)
+
         sent = self.network.send_unicast(build_message(fields), to_uid)
         if not sent:
             print("❌ Failed to send FILE_OFFER.")
@@ -127,6 +131,11 @@ class FileService:
                         "MESSAGE_ID": uuid.uuid4().hex[:8],
                         "TIMESTAMP": str(int(time.time())),
                     }
+
+                    file_chunk_msg = build_message(fields)
+
+                    self.network.send_broadcast(file_chunk_msg)
+
                     sent = self.network.send_unicast(build_message(fields), to_uid)
                     if not sent:
                         # retry once
@@ -146,19 +155,29 @@ class FileService:
         fileid = msg.get("FILEID")
         meta = self.outgoing.get(fileid)
         if not meta:
-            if self.verbose:
-                print(f"[FILE] ACCEPT for unknown fileid {fileid}")
+            print(f"[FILE] ACCEPT for unknown fileid {fileid}")
             return
         meta["accept_event"].set()
-        if self.verbose:
-            print(f"[FILE] Offer {fileid} accepted by {meta['to']} — starting transfer")
+        print(f"[FILE] Offer {fileid} accepted by {meta['to']} — starting transfer")
 
     def handle_file_received(self, msg: dict, addr: tuple) -> None:
         fileid = msg.get("FILEID")
         status = msg.get("STATUS", "")
         meta = self.outgoing.pop(fileid, None)
         if meta:
-            print(f"✅ Remote acknowledged file {fileid}: {status}")
+            to_uid = meta["to"]
+
+            fields = {
+                "TYPE": "FILE_RECEIVED",
+                "FROM": self.user.user_id,
+                "TO": to_uid,
+                "FILEID": fileid,
+                "STATUS": "COMPLETE",
+                "TIMESTAMP": str(int(time.time())),
+            }
+            file_chunk_msg = build_message(fields)
+
+            self.network.send_broadcast(file_chunk_msg)
 
     # ---------------- Receiver side ----------------
     def handle_file_offer_incoming(self, msg: dict, addr: tuple) -> None:
@@ -233,8 +252,7 @@ class FileService:
     def handle_file_chunk_incoming(self, msg: dict, addr: tuple) -> None:
         fileid = msg.get("FILEID")
         if fileid not in self.incoming_active:
-            if self.verbose:
-                print(f"[FILE] Ignoring chunk for unknown/unaccepted fileid {fileid}")
+            print(f"[FILE] Ignoring chunk for unknown/unaccepted fileid {fileid}")
             return
         try:
             idx = int(msg.get("CHUNK_INDEX"))
