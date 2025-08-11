@@ -43,7 +43,8 @@ def require_valid_token(msg: dict, addr: tuple, verbose: bool) -> bool:
     if uid and "@" in uid:
         declared_ip = uid.split("@", 1)[1]
         if declared_ip != addr[0]:
-            if verbose:
+            # Only show verbose for non-PROFILE messages
+            if verbose and mtype not in ("PING", "PROFILE"):
                 print(f"DROP ! {mtype}: IP mismatch {declared_ip} != {addr[0]}")
             return False
 

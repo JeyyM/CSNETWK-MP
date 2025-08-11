@@ -61,9 +61,6 @@ class PingService:
         ping_msg = build_message(fields)
         self.network_manager.send_broadcast(ping_msg)
         
-        if user.verbose:
-            print(f"[PING] Sent ping")
-    
     def _send_profile(self, user: User) -> None:
         """Send a profile broadcast."""
         fields = {
@@ -76,6 +73,9 @@ class PingService:
 
         self.network_manager.send_broadcast(profile_msg)
         # print("\n\n====================================================================\n\n" + profile_msg + "====================================================================\n\n")
+        
+        if user.verbose:
+            print(f"[PROFILE] Sent profile broadcast")
         
         if user.verbose:
             print(f"[PROFILE] Sent profile broadcast")

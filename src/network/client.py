@@ -99,9 +99,6 @@ class NetworkManager:
             try:
                 self._auto_register_token(message)
                 sock.sendto(message.encode("utf-8"), (bcast, PORT))
-                if self.verbose:
-                    print("\n\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n\n" + message + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n")
-                    print(f"[DEBUG] Broadcast sent to {bcast}")
             except Exception as e:
                 print(f"Broadcast to {bcast} failed: {e}")
         
