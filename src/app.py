@@ -173,7 +173,7 @@ class LSNPApplication:
                 
                 elif choice == "8":
                     print("\nLogging out and exiting LSNP...\n")
-                    self.logout()   # broadcasts REVOKEs, stops services, exits process
+                    self.logout()   # broadcasts REVOKE, stops services, exits process
                     break
                 
                 elif choice == "9":
@@ -240,15 +240,16 @@ class LSNPApplication:
                 self.network_manager.send_broadcast(
                     build_message({"TYPE": "REVOKE", "TOKEN": tok})
                 )
+                if self.user and self.user.verbose:
+                    print(f"TYPE: REVOKE \nTOKEN: {tok}")
         else:
             exp = int(time.time()) + 60
             tok = f"{self.user.user_id}|{exp}|broadcast"
             self.network_manager.send_broadcast(
                 build_message({"TYPE": "REVOKE", "TOKEN": tok})
             )
-
-        if self.user and self.user.verbose:
-            print("[LOGOUT] Broadcast REVOKE. Exiting...")
+            if self.user and self.user.verbose:
+                print(f"TYPE: REVOKE \nTOKEN: {tok}")
 
         self.stop()
         sys.exit(0)

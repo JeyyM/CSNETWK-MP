@@ -114,7 +114,8 @@ class MessageRouter:
         app_state.remove_peer(user_id)
 
         if self.verbose:
-            print(f"[REVOKE] From {user_id} (scope={scope}). Removed from active list.")
+            # Print REVOKE in detailed format
+            print(f"TYPE: REVOKE \nTOKEN: {tok}")
 
     # Convenience: used elsewhere when the local user sends a POST
     def send_post(self, user, content: str, ttl: int = 3600) -> bool:

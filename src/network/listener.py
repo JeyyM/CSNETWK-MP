@@ -58,9 +58,30 @@ class UDPListener:
 
                 if self.verbose:
                     t = time.strftime("%H:%M:%S")
-                    # Only show verbose for non-PING, non-PROFILE, non-POST, non-DM messages
-                    if msg.get('TYPE', '?') not in ('PING', 'PROFILE', 'POST', 'DM'):
-                        print(f"\nRECV< {t} {addr[0]}:{addr[1]} TYPE={msg.get('TYPE','?')}")
+                    file_types = (
+                        'FILE_OFFER', 'FILE_CHUNK', 'FILE_RECEIVED', 'FILE_ACCEPT', 'FILE_REJECT'
+                    )
+                    msg_type = msg.get('TYPE', '?')
+                    if msg_type in file_types:
+                        # Print detailed file message
+                        print(f"TYPE: {msg_type}")
+                        for k in [
+                            "FROM", "TO", "FILENAME", "FILESIZE", "FILETYPE", "FILEID", "DESCRIPTION",
+                            "TIMESTAMP", "TOKEN", "TOTAL_CHUNKS", "CHUNK_SIZE", "CHUNK_INDEX", "DATA",
+                            "STATUS", "MESSAGE_ID"
+                        ]:
+                            if k in msg and msg[k] != "":
+                                # For DATA, print only a short preview
+                                if k == "DATA":
+                                    data_val = msg[k]
+                                    preview = data_val[:32] + ("..." if len(data_val) > 32 else "")
+                                    print(f"{k}: {preview}")
+                                else:
+                                    print(f"{k}: {msg[k]}")
+                        print()
+                    # Only show old verbose for non-PING, non-PROFILE, non-POST, non-DM, non-file messages
+                    elif msg_type not in ('PING', 'PROFILE', 'POST', 'DM'):
+                        print(f"\nRECV< {t} {addr[0]}:{addr[1]} TYPE={msg_type}")
 
                 # Route message to appropriate handler
                 self.message_router(msg, addr)
