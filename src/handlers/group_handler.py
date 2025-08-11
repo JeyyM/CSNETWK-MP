@@ -47,10 +47,6 @@ class GroupHandler:
         # Add to state
         app_state.add_group(group)
         
-        # Display notification
-        print(f"\n🔔 You've been added to {group_name}")
-        print("> ", end="", flush=True)
-        
         if self.verbose:
             print(f"GROUP_CREATE: {from_user} created group {group_name} ({group_id})")
     
@@ -88,10 +84,6 @@ class GroupHandler:
         
         # Update group membership
         app_state.update_group_membership(group_id, add_members, remove_members)
-        
-        # Display notification
-        print(f"\n🔔 The group \"{group.group_name}\" member list was updated.")
-        print("> ", end="", flush=True)
         
         if self.verbose:
             print(f"GROUP_UPDATE: {from_user} updated group {group.group_name}")
@@ -137,10 +129,6 @@ class GroupHandler:
         
         # Add to history
         app_state.add_group_message(group_message)
-        
-        # Display notification
-        print(f"\n💬 [{group.group_name}] {display_name}: {content}")
-        print("> ", end="", flush=True)
         
         if self.verbose:
             print(f"GROUP_MESSAGE: {from_user} sent message to group {group.group_name}")
