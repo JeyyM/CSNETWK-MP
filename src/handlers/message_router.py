@@ -53,9 +53,6 @@ class MessageRouter:
             
             "REVOKE": self._handle_revoke
         }
-
-        self.ack_types = {"DM", "TICTACTOE_INVITE", "TICTACTOE_MOVE",
-            "FILE_OFFER", "FILE_CHUNK"}
     
     def route_message(self, msg: dict, addr: tuple) -> None:
         """Route incoming messages to appropriate handlers."""
@@ -63,9 +60,13 @@ class MessageRouter:
 
         # Handle ACKs immediately before any other processing
         if mtype == "ACK":
-            self._handle_ack(msg, addr)
+            mid = msg.get("MESSAGE_ID", "")
+            if mid:
+                app_state.resolve_ack(mid)
+                if self.verbose:
+                    print(f"✅ ACK received for {mid} from {addr[0]}")
             return
-
+        
         # Validate token if present (except for ACK which was handled above)
         token = msg.get("TOKEN")
         if token:

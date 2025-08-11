@@ -104,32 +104,28 @@ class NetworkManager:
         sock.close()
     
     def send_ack(self, message_id: str, addr: tuple) -> None:
-        """Send an ACK message with retry."""
+        """
+        Send an ACK for message_id back to the peer's *listening* LSNP port.
+        NOTE: We intentionally ignore the peer's ephemeral source port (addr[1]).
+        """
+        if not message_id:
+            return
+
         ack_fields = {
             "TYPE": "ACK",
             "MESSAGE_ID": message_id,
             "STATUS": "RECEIVED",
-            "TIMESTAMP": int(time.time())
         }
         ack_msg = build_message(ack_fields)
-        
+
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(1.0)  # 1 second timeout
-        
-        # Try to send ACK up to 3 times
-        for attempt in range(3):
-            try:
-                sock.sendto(ack_msg.encode("utf-8"), addr)
-                if self.verbose:
-                    print(f"✅ Sent ACK for {message_id} to {addr} (attempt {attempt+1})")
-                sock.close()
-                return
-            except Exception as e:
-                if self.verbose:
-                    print(f"❌ Failed to send ACK (attempt {attempt+1}): {e}")
-                if attempt < 2:  # Don't sleep on last attempt
-                    time.sleep(0.5)
-        
-        if self.verbose:
-            print(f"❌ Failed to send ACK after 3 attempts")
-        sock.close()
+        try:
+            # Force destination to (peer_ip, 50999) instead of the source port.
+            sock.sendto(ack_msg.encode("utf-8"), (addr[0], PORT))
+            if self.verbose:
+                print(f"✅ Sent ACK for {message_id} to {(addr[0], PORT)}")
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Failed to send ACK: {e}")
+        finally:
+            sock.close()
