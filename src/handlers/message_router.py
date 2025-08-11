@@ -7,6 +7,7 @@ from .dm_handler import DmHandler
 from .post_handler import PostHandler
 from .like_handler import LikeHandler
 from .game_handler import GameHandler
+from .group_handler import GroupHandler
 from ..network.client import NetworkManager
 
 
@@ -23,6 +24,7 @@ class MessageRouter:
         self.post_handler = PostHandler(verbose)
         self.like_handler = LikeHandler(verbose)
         self.game_handler = GameHandler(network_manager, verbose)
+        self.group_handler = GroupHandler(network_manager, verbose)
         
         # Message type routing table
         self.handlers: Dict[str, Callable[[dict, tuple], None]] = {
@@ -34,6 +36,9 @@ class MessageRouter:
             "TICTACTOE_INVITE": self.game_handler.handle_invite,
             "TICTACTOE_MOVE": self.game_handler.handle_move,
             "TICTACTOE_RESULT": self.game_handler.handle_result,
+            "GROUP_CREATE": self.group_handler.handle_group_create,
+            "GROUP_UPDATE": self.group_handler.handle_group_update,
+            "GROUP_MESSAGE": self.group_handler.handle_group_message,
             "ACK": self._handle_ack,
         }
     
