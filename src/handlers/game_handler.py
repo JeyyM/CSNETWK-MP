@@ -13,154 +13,133 @@ class GameHandler:
     def __init__(self, network_manager: NetworkManager, verbose: bool = False):
         self.network_manager = network_manager
         self.verbose = verbose
-    
+        
     def handle_invite(self, msg: dict, addr: tuple) -> None:
-        """Handle a TICTACTOE_INVITE message."""
+        mid = msg.get("MESSAGE_ID")
+        if mid:
+            self.network_manager.send_ack(mid, addr)
+        
         from_user = msg.get("FROM")
-        to_user = msg.get("TO")
-        game_id = msg.get("GAMEID")
-        symbol_str = msg.get("SYMBOL")
-        message_id = msg.get("MESSAGE_ID")
-        timestamp = float(msg.get("TIMESTAMP", time.time()))
-        token = msg.get("TOKEN", "")
-        
-        if not all([from_user, game_id, symbol_str]):
-            if self.verbose:
-                print("TICTACTOE_INVITE missing required fields")
-            return
-        
-        try:
-            symbol = Symbol(symbol_str)
-        except ValueError:
-            if self.verbose:
-                print(f"TICTACTOE_INVITE invalid symbol: {symbol_str}")
-            return
-        
-        # Update sender's IP
-        app_state.update_peer_ip(from_user, addr[0])
-        
-        # Create invite
+        to_user   = msg.get("TO")
+        game_id   = msg.get("GAMEID")
+        symbol    = Symbol.X if msg.get("SYMBOL","X") == "X" else Symbol.O
+        other     = Symbol.O if symbol == Symbol.X else Symbol.X  # <-- move outside so it's always defined
+
+        if from_user:
+            app_state.update_peer_ip(from_user, addr[0])
+
+        # Ensure local game exists
+        game = app_state.get_ttt_game(game_id)
+        if not game:
+            game = TicTacToeGame(game_id=game_id)
+            game.players = {symbol: from_user, other: to_user}
+            game.state = GameState.PENDING
+            app_state.add_ttt_game(game)
+
+        # NEW: save the invite so UI can show Accept/Reject
         invite = TicTacToeInvite(
             from_user=from_user,
-            to_user=to_user or "",
+            to_user=to_user,
             game_id=game_id,
             symbol=symbol,
-            timestamp=timestamp,
-            message_id=message_id or "",
-            token=token
+            timestamp=float(msg.get("TIMESTAMP", time.time())),
+            message_id=msg.get("MESSAGE_ID",""),
+            token=msg.get("TOKEN",""),
         )
-        
         app_state.add_ttt_invite(invite)
-        
-        # Create game shell if it doesn't exist
-        if not app_state.get_ttt_game(game_id):
-            other_symbol = Symbol.O if symbol == Symbol.X else Symbol.X
-            game = TicTacToeGame(
-                game_id=game_id,
-                players={symbol: from_user, other_symbol: to_user or ""},
-                state=GameState.PENDING
-            )
-            app_state.add_ttt_game(game)
-        
-        # Get display name for notification
-        peer = app_state.get_peer(from_user)
-        display_name = peer.display_name if peer else from_user
-        
-        print(f"\n🎮 Tic Tac Toe invite from {display_name}! (Game: {game_id})")
-        print("> ", end="", flush=True)
-        
+
         if self.verbose:
-            print(f"TICTACTOE_INVITE from {from_user} for game {game_id}")
+            print("\n[GAME] You received a Tic-Tac-Toe invite!")
+            print(game.render_board())
+            print(f"[GAME] You will play as {other.value}.")
+
     
     def handle_move(self, msg: dict, addr: tuple) -> None:
-        """Handle a TICTACTOE_MOVE message."""
+        """Handle incoming TICTACTOE_MOVE (apply on receiver, finish if needed)."""
+        mid = msg.get("MESSAGE_ID")
+        if mid:
+            self.network_manager.send_ack(mid, addr)
+        
         from_user = msg.get("FROM")
-        game_id = msg.get("GAMEID")
-        position_str = msg.get("POSITION")
-        symbol_str = msg.get("SYMBOL")
-        
-        if not all([from_user, game_id, position_str, symbol_str]):
-            if self.verbose:
-                print("TICTACTOE_MOVE missing required fields")
-            return
-        
+        game_id   = msg.get("GAMEID")
         try:
-            position = int(position_str)
-            symbol = Symbol(symbol_str)
-        except (ValueError, TypeError):
+            position = int(msg.get("POSITION", -1))
+        except ValueError:
+            position = -1
+        symbol_str = msg.get("SYMBOL", "")
+
+        # Map symbol string to enum
+        if symbol_str not in ("X", "O"):
             if self.verbose:
-                print("TICTACTOE_MOVE invalid position or symbol")
+                print("[GAME] Invalid symbol in move")
             return
-        
-        # Update sender's IP
-        app_state.update_peer_ip(from_user, addr[0])
-        
-        # Get game
+        symbol = Symbol.X if symbol_str == "X" else Symbol.O
+
+        # Track sender IP
+        if from_user:
+            app_state.update_peer_ip(from_user, addr[0])
+
         game = app_state.get_ttt_game(game_id)
         if not game:
             if self.verbose:
-                print(f"TICTACTOE_MOVE: Game {game_id} not found")
+                print(f"[GAME] MOVE for unknown game {game_id}")
             return
-        
-        # Validate and make move
+
+        # Enforce turn and symbol ownership
+        if game.next_symbol != symbol:
+            if self.verbose:
+                print(f"[GAME] Out-of-turn move by {from_user} in {game_id}")
+            return
+
+        # Optional dedupe (by turn/pos/symbol)
+        key = f"{game.turn}:{position}:{symbol.value}"
+        if key in game.moves_seen:
+            return
+        game.moves_seen.add(key)
+
+        # Validate move
         if not game.is_valid_move(position):
             if self.verbose:
-                print(f"TICTACTOE_MOVE: Invalid move {position} for game {game_id}")
+                print(f"[GAME] Invalid move {position} in {game_id}")
             return
-        
+
+        # Apply
         game.make_move(position, symbol)
         game.state = GameState.ACTIVE
-        
-        # Check for game end
-        winner = game.check_winner()
-        is_draw = game.is_draw()
-        
-        if winner or is_draw:
-            game.state = GameState.FINISHED
-            if winner:
-                winner_id = game.players.get(winner)
-                peer = app_state.get_peer(winner_id) if winner_id else None
-                winner_name = peer.display_name if peer else (winner_id or "Unknown")
-                print(f"\n🎉 Game {game_id} won by {winner_name} ({winner.value})!")
-            else:
-                print(f"\n🤝 Game {game_id} ended in a draw!")
-        
-        # Display board
-        print(f"\n🎮 Game {game_id} - Move by {from_user}:")
-        print(game.render_board())
-        
-        if game.state == GameState.ACTIVE:
-            print(f"Next turn: {game.next_symbol.value}")
-        
-        print("> ", end="", flush=True)
-        
+
+        # Print board (RFC suggests printing board on MOVE)
         if self.verbose:
-            print(f"TICTACTOE_MOVE: {from_user} played {symbol.value} at {position}")
+            print(game.render_board())
+            print(f"[GAME] Next: {game.next_symbol.value}")
+
+        # Finish if win/draw (do NOT send RESULT here—only mover sends)
+        if game.check_winner() or game.is_draw():
+            game.state = GameState.FINISHED
+            if self.verbose:
+                if game.is_draw():
+                    print(f"[GAME] DRAW in {game_id}")
+                else:
+                    print(f"[GAME] {symbol.value} wins in {game_id}")
+            # Remove locally so it disappears from active
+            app_state.remove_ttt_game(game_id)
     
     def handle_result(self, msg: dict, addr: tuple) -> None:
-        """Handle a TICTACTOE_RESULT message."""
         from_user = msg.get("FROM")
-        game_id = msg.get("GAMEID")
-        result = msg.get("RESULT")
-        
-        if not all([from_user, game_id, result]):
-            if self.verbose:
-                print("TICTACTOE_RESULT missing required fields")
-            return
-        
-        # Update sender's IP
-        app_state.update_peer_ip(from_user, addr[0])
-        
-        if result == "FORFEIT":
-            # Clean up game state
-            app_state.remove_ttt_game(game_id)
-            app_state.remove_ttt_invite(from_user, game_id)
-            
-            peer = app_state.get_peer(from_user)
-            display_name = peer.display_name if peer else from_user
-            
-            print(f"\n🚫 {display_name} forfeited game {game_id}")
-            print("> ", end="", flush=True)
-        
-        if self.verbose:
-            print(f"TICTACTOE_RESULT: {from_user} sent {result} for game {game_id}")
+        game_id   = msg.get("GAMEID")
+        result    = msg.get("RESULT", "DRAW")   # WIN, LOSS, DRAW, FORFEIT
+        symbol    = msg.get("SYMBOL")           # winner's symbol if WIN; last mover for DRAW
+
+        if from_user:
+            app_state.update_peer_ip(from_user, addr[0])
+
+        game = app_state.get_ttt_game(game_id)
+
+        # Show final board + message even if not verbose, so users actually see it.
+        if game:
+            print(game.render_board())
+        print(f"[GAME] Result for {game_id}: {result}" + (f" (winner {symbol})" if result == "WIN" and symbol else ""))
+
+        # Mark finished & clean up (idempotent)
+        if game:
+            game.state = GameState.FINISHED
+        app_state.remove_ttt_game(game_id)

@@ -10,6 +10,8 @@ from ..network.client import NetworkManager
 from ..network.protocol import build_message
 from ..core.state import app_state
 
+ACK_TIMEOUT = 2.0
+ACK_ATTEMPTS = 3
 
 class GameService:
     """Service for game-related operations."""
@@ -47,25 +49,103 @@ class GameService:
         invite_msg = build_message(fields)
         
         success = self.network_manager.send_unicast(invite_msg, opponent_id)
+        
+        
+        invite_msg = build_message(fields)
+        success = self._send_with_ack(opponent_id, fields)
         return game_id if success else None
     
     def send_move(self, game_id: str, position: int, user: User) -> bool:
-        """Send a game move."""
+        """Send a game move. Apply locally first so the sender sees it immediately.
+        If the move ends the game, send TICTACTOE_RESULT and clean up.
+        """
         game = app_state.get_ttt_game(game_id)
         if not game:
-            return False
-        
-        player_symbol = game.get_player_symbol(user.user_id)
-        if not player_symbol:
-            return False
-        
-        opponent_id = game.get_opponent(user.user_id)
-        if not opponent_id:
+            if getattr(self.network_manager, "verbose", False):
+                print(f"[GAME] No local state for game {game_id}")
             return False
 
+        player_symbol = game.get_player_symbol(user.user_id)
+        if not player_symbol:
+            if getattr(self.network_manager, "verbose", False):
+                print(f"[GAME] You are not a participant in {game_id}")
+            return False
+
+        opponent_id = game.get_opponent(user.user_id)
+        if not opponent_id:
+            if getattr(self.network_manager, "verbose", False):
+                print(f"[GAME] Opponent not set for {game_id}")
+            return False
+
+        # Turn + position checks
+        if game.next_symbol != player_symbol:
+            if getattr(self.network_manager, "verbose", False):
+                print(f"[GAME] Not your turn ({player_symbol.value}) in {game_id}")
+            return False
+        if not game.is_valid_move(position):
+            if getattr(self.network_manager, "verbose", False):
+                print(f"[GAME] Invalid position {position} in {game_id}")
+            return False
+
+        # Apply locally so sender's board updates immediately
+        game.make_move(position, player_symbol)
+        game.state = GameState.ACTIVE
+
+        # Check end state locally
+        winner = game.check_winner()
+        is_draw = game.is_draw()
+
+        if winner or is_draw:
+            # Mark finished and announce result to opponent
+            game.state = GameState.FINISHED
+
+            # Find winning line if any
+            winning_line = None
+            if winner:
+                wins = [
+                    [0,1,2],[3,4,5],[6,7,8],
+                    [0,3,6],[1,4,7],[2,5,8],
+                    [0,4,8],[2,4,6]
+                ]
+                for combo in wins:
+                    if all(game.board[i] == winner for i in combo):
+                        winning_line = ",".join(map(str, combo))
+                        break
+
+            message_id = uuid.uuid4().hex[:8]
+            timestamp  = int(time.time())
+            token      = f"{user.user_id}|{timestamp+3600}|game"
+
+            fields = {
+                "TYPE": "TICTACTOE_RESULT",
+                "FROM": user.user_id,
+                "TO": opponent_id,
+                "GAMEID": game_id,
+                "MESSAGE_ID": message_id,
+                "RESULT": "DRAW" if is_draw else "WIN",   # sender's perspective
+                "SYMBOL": player_symbol.value,            # winner's symbol if WIN; last mover's if DRAW
+                "TIMESTAMP": timestamp,
+                "TOKEN": token,
+            }
+            if winning_line:
+                fields["WINNING_LINE"] = winning_line
+
+            msg = build_message(fields)
+            self.network_manager.send_unicast(msg, opponent_id)
+
+            # Optional: print locally
+            if getattr(self.network_manager, "verbose", False):
+                print(game.render_board())
+                print(f"[GAME] {('DRAW' if is_draw else f'{player_symbol.value} WINS')} — game {game_id} finished.")
+
+            # Clean up local state so the game no longer appears active
+            app_state.remove_ttt_game(game_id)
+            return True
+
+        # Otherwise, send the MOVE packet
         message_id = uuid.uuid4().hex[:8]
-        timestamp = int(time.time())
-        token = f"{user.user_id}|{timestamp+3600}|game"
+        timestamp  = int(time.time())
+        token      = f"{user.user_id}|{timestamp+3600}|game"
 
         fields = {
             "TYPE": "TICTACTOE_MOVE",
@@ -78,29 +158,67 @@ class GameService:
             "TIMESTAMP": timestamp,
             "TOKEN": token,
         }
-        move_msg = build_message(fields)
+        return self._send_with_ack(opponent_id, fields)
+
         
-        return self.network_manager.send_unicast(move_msg, opponent_id)
-    
-    def accept_invite(self, invite: TicTacToeInvite, first_move: int, user: User) -> bool:
-        """Accept a game invite with first move."""
-        # Remove the invite
-        app_state.remove_ttt_invite(invite.from_user, invite.game_id)
-        
-        # Make sure game exists locally
-        game = app_state.get_ttt_game(invite.game_id)
-        if not game:
-            # Create game state
-            my_symbol = Symbol.O if invite.symbol == Symbol.X else Symbol.X
-            game = TicTacToeGame(
-                game_id=invite.game_id,
-                players={invite.symbol: invite.from_user, my_symbol: user.user_id},
-                state=GameState.ACTIVE
-            )
-            app_state.add_ttt_game(game)
-        
-        # Send move
-        return self.send_move(invite.game_id, first_move, user)
+    def invite_with_first_move(self, opponent_id: str, position: int, user: User, game_id: str | None = None) -> bool:
+        """Inviter (X) sends TICTACTOE_INVITE and immediately the first MOVE, both with ACK retries."""
+        # generate game id if not provided (RFC suggests g0..g255)
+        if not game_id:
+            game_id = f"g{random.randint(0,255)}"
+
+        # Create local game skeleton
+        game = TicTacToeGame(game_id=game_id)
+        game.players = {
+            Symbol.X: user.user_id,
+            Symbol.O: opponent_id
+        }
+        game.state = GameState.PENDING
+        app_state.add_ttt_game(game)
+
+        # --- Send INVITE first (with ACK retries) ---
+        ts_inv = int(time.time())
+        invite_mid = uuid.uuid4().hex[:8]
+        invite_fields = {
+            "TYPE": "TICTACTOE_INVITE",
+            "FROM": user.user_id,
+            "TO": opponent_id,
+            "GAMEID": game_id,
+            "MESSAGE_ID": invite_mid,
+            "SYMBOL": "X",                     # inviter plays X
+            "TIMESTAMP": ts_inv,
+            "TOKEN": f"{user.user_id}|{ts_inv+3600}|game",
+        }
+        if not self._send_with_ack(opponent_id, invite_fields):
+            return False
+
+        # --- Apply the first move locally ---
+        if game.next_symbol != Symbol.X:
+            game.next_symbol = Symbol.X
+        if not game.is_valid_move(position):
+            if getattr(self.network_manager, "verbose", False):
+                print(f"[GAME] Invalid first position {position} for {game_id}")
+            return False
+
+        game.make_move(position, Symbol.X)
+        game.state = GameState.ACTIVE
+
+        # --- Send MOVE (with ACK retries) ---
+        ts_mv = int(time.time())
+        move_mid = uuid.uuid4().hex[:8]
+        move_fields = {
+            "TYPE": "TICTACTOE_MOVE",
+            "FROM": user.user_id,
+            "TO": opponent_id,
+            "GAMEID": game_id,
+            "POSITION": position,
+            "SYMBOL": "X",
+            "MESSAGE_ID": move_mid,
+            "TIMESTAMP": ts_mv,
+            "TOKEN": f"{user.user_id}|{ts_mv+3600}|game",
+        }
+        return self._send_with_ack(opponent_id, move_fields)
+
     
     def reject_invite(self, invite: TicTacToeInvite, user: User) -> bool:
         """Reject a game invite."""
@@ -154,3 +272,26 @@ class GameService:
             status_parts.append("Ongoing")
         
         return ", ".join(status_parts) if status_parts else "Idle"
+
+
+
+    def _send_with_ack(self, to_user_id: str, fields: dict) -> bool:
+        """Send a message and wait for ACK with retries."""
+        msg = build_message(fields)
+        mid = fields.get("MESSAGE_ID")
+        evt = app_state.mark_ack_pending(mid)
+
+        for attempt in range(1, ACK_ATTEMPTS + 1):
+            self.network_manager.send_unicast(msg, to_user_id)
+            if getattr(self.network_manager, "verbose", False):
+                print(f"[ACK] Sent {fields['TYPE']} attempt {attempt}/%d mid={mid}" % ACK_ATTEMPTS)
+            if evt.wait(ACK_TIMEOUT):
+                if getattr(self.network_manager, "verbose", False):
+                    print(f"[ACK] Received ACK for {mid}")
+                return True
+            if getattr(self.network_manager, "verbose", False):
+                print(f"[ACK] Timeout waiting for {mid}, retrying...")
+
+        # give up
+        app_state.drop_ack_wait(mid)
+        return False

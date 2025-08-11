@@ -83,12 +83,31 @@ class GameMenu:
             return
         
         symbol = Symbol(symbol_choice)
-        game_id = self.game_service.create_game_invite(opponent.user_id, symbol, self.user)
-        
-        if game_id:
-            print(f"Invite sent for game {game_id}.")
+
+        if symbol == Symbol.X:
+            # Show a numbered board for context, then ask for first move
+            preview = TicTacToeGame(game_id="preview")
+            print(preview.render_board())
+            first = input("Your first move [0-8]: ").strip()
+            try:
+                pos = int(first)
+                if not (0 <= pos <= 8):
+                    raise ValueError
+            except ValueError:
+                print("Invalid position. Must be 0–8.")
+                return
+
+            ok = self.game_service.invite_with_first_move(opponent.user_id, pos, self.user)
+            if ok:
+                print("Invite sent with your first move.")
+            else:
+                print("Invite failed to send.")
         else:
-            print("Invite failed to send.")
+            game_id = self.game_service.create_game_invite(opponent.user_id, symbol, self.user)
+            if game_id:
+                print(f"Invite sent for game {game_id}.")
+            else:
+                print("Invite failed to send.")
     
     def _handle_peer_interaction(self, peer: Peer) -> None:
         """Handle interaction with a specific peer (invites/games)."""
@@ -126,37 +145,45 @@ class GameMenu:
         """Handle an incoming game invite."""
         inviter_peer = self.user_service.get_peer(invite.from_user)
         inviter_name = inviter_peer.display_name if inviter_peer else invite.from_user
-        
+
         my_symbol = Symbol.O if invite.symbol == Symbol.X else Symbol.X
-        print(f"Invite detected (game {invite.game_id}). You are '{my_symbol.value}'.")
-        
-        move = input("Enter your first move [0-8] to ACCEPT, or 'n' to reject: ").strip().lower()
-        
-        if move == "n":
-            success = self.game_service.reject_invite(invite, self.user)
-            if success:
-                print("Invite rejected.")
-            else:
-                print("Failed to reject invite.")
-            return
-        
-        try:
-            position = int(move)
-            if not (0 <= position <= 8):
-                raise ValueError("Position must be 0-8")
-            
-            success = self.game_service.accept_invite(invite, position, self.user)
-            if success:
-                print(f"Accepted invite. Played {position}.")
-                # Show the board after move
-                game = self.game_service.get_game(invite.game_id)
-                if game:
-                    print(game.render_board())
-            else:
-                print("Failed to send your move.")
-        except ValueError:
-            print("Invalid input.")
-    
+        print(f"\nInvite detected from {inviter_name} (game {invite.game_id}). You are '{my_symbol.value}'.")
+
+        # Show a numbered board for context
+        game = self.game_service.get_game(invite.game_id)
+        if game:
+            print(game.render_board())
+        else:
+            print(TicTacToeGame(game_id="preview").render_board())
+
+        while True:
+            choice = input("[A]ccept with move, [R]eject, [B]ack: ").strip().lower()
+            if choice == "b":
+                return
+            if choice == "r":
+                success = self.game_service.reject_invite(invite, self.user)
+                print("Invite rejected." if success else "Failed to reject invite.")
+                return
+            if choice == "a":
+                move = input("Enter your first move [0-8]: ").strip()
+                try:
+                    position = int(move)
+                    if not (0 <= position <= 8):
+                        raise ValueError
+                except ValueError:
+                    print("Invalid position. Must be 0–8.")
+                    continue
+                success = self.game_service.accept_invite(invite, position, self.user)
+                if success:
+                    print(f"Accepted invite. Played {position}.")
+                    updated = self.game_service.get_game(invite.game_id)
+                    if updated:
+                        print(updated.render_board())
+                else:
+                    print("Failed to send your move.")
+                return
+            print("Please choose A, R, or B.")
+
     def _play_game(self, game: TicTacToeGame) -> None:
         """Play an active game."""
         print(game.render_board())
@@ -191,21 +218,21 @@ class GameMenu:
             
             success = self.game_service.send_move(game.game_id, position, self.user)
             if success:
-                # Update local game state optimistically
-                game.make_move(position, player_symbol)
-                print(game.render_board())
-                
-                # Check for game end
-                winner = game.check_winner()
+                # Do NOT apply the move here; send_move already applied it locally.
+                updated = self.game_service.get_game(game.game_id) or game
+                print(updated.render_board())
+
+                # Check for end state on the updated object
+                winner = updated.check_winner()
                 if winner:
-                    winner_id = game.players.get(winner)
+                    winner_id = updated.players.get(winner)
                     if winner_id == self.user.user_id:
                         print("🎉 You won!")
                     else:
                         peer = self.user_service.get_peer(winner_id)
                         winner_name = peer.display_name if peer else winner_id
                         print(f"😞 {winner_name} won!")
-                elif game.is_draw():
+                elif updated.is_draw():
                     print("🤝 It's a draw!")
             else:
                 print("Move send failed.")

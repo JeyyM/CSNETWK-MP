@@ -1,5 +1,6 @@
 """Central application state management."""
-from typing import Dict, List, Set, Optional
+from typing import Dict, List, Set, Optional, Callable
+import threading
 from threading import Lock
 import time
 
@@ -7,23 +8,22 @@ from ..models.user import Peer, DirectMessage, Post
 from ..models.game import TicTacToeInvite, TicTacToeGame
 from ..models.group import Group, GroupMessage
 
-
 class ApplicationState:
     """Centralized application state manager."""
     
     def __init__(self):
         self._lock = Lock()
-        
+
         # Network state
         self._peers: Dict[str, Peer] = {}
         self._user_ip_map: Dict[str, str] = {}
-        
+
         # Social features
         self._following: Set[str] = set()
         self._post_feed: List[Post] = []
         self._dm_history: Dict[str, List[DirectMessage]] = {}
         self._active_dm_user: Optional[str] = None
-        
+
         # Game state
         self._ttt_invites: Dict[tuple, TicTacToeInvite] = {}
         self._ttt_games: Dict[str, TicTacToeGame] = {}
@@ -31,6 +31,10 @@ class ApplicationState:
         # Group state
         self._groups: Dict[str, Group] = {}
         self._group_messages: Dict[str, List[GroupMessage]] = {}
+
+        # File offer listeners (UI callbacks)
+        self._incoming_file_listeners: List[Callable[[str, dict], None]] = []
+        self._pending_acks: Dict[str, threading.Event] = {}
     
     # Peer management
     def add_peer(self, peer: Peer) -> None:
@@ -187,9 +191,15 @@ class ApplicationState:
             return self._ttt_games.get(game_id)
     
     def remove_ttt_game(self, game_id: str) -> None:
-        """Remove a Tic Tac Toe game."""
+        """Remove a Tic Tac Toe game and any pending invites that reference it."""
         with self._lock:
+            # Remove the game
             self._ttt_games.pop(game_id, None)
+
+            # Remove any invites with this game_id (keys are (from_user, game_id))
+            to_delete = [k for k in self._ttt_invites.keys() if k[1] == game_id]
+            for k in to_delete:
+                self._ttt_invites.pop(k, None)
     
     def get_ttt_games_for_user(self, user_id: str) -> List[TicTacToeGame]:
         """Get all games involving a specific user."""
@@ -254,7 +264,42 @@ class ApplicationState:
         """Get all groups."""
         with self._lock:
             return list(self._groups.values())
+    
+    def mark_ack_pending(self, message_id: str) -> threading.Event:
+        """Create/register an Event for this message_id ACK."""
+        evt = threading.Event()
+        with self._lock:
+            self._pending_acks[message_id] = evt
+        return evt
 
+    def resolve_ack(self, message_id: str) -> None:
+        """Signal that ACK arrived for message_id (idempotent)."""
+        with self._lock:
+            evt = self._pending_acks.pop(message_id, None)
+        if evt:
+            evt.set()
+
+    def wait_for_ack(self, message_id: str, timeout: float) -> bool:
+        """Block up to timeout waiting for the ACK Event."""
+        with self._lock:
+            evt = self._pending_acks.get(message_id)
+        return evt.wait(timeout) if evt else False
+
+    def drop_ack_wait(self, message_id: str) -> None:
+        """Remove pending ACK without setting it (cleanup after giving up)."""
+        with self._lock:
+            self._pending_acks.pop(message_id, None)
+    
+    def notify_incoming_file_offer(self, fileid: str, offer: dict) -> None:
+        for cb in self._incoming_file_listeners:
+            try:
+                cb(fileid, offer)
+            except Exception:
+                pass
+
+    def register_incoming_file_listener(self, callback: Callable[[str, dict], None]):
+        """Callback signature: fn(fileid: str, offer: dict)"""
+        self._incoming_file_listeners.append(callback)
 
 # Global application state instance
 app_state = ApplicationState()
