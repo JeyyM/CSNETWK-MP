@@ -3,6 +3,7 @@ import threading
 import time
 from typing import Optional
 import sys
+import uuid
 
 from .models.user import User
 from .network.client import NetworkManager
@@ -70,6 +71,11 @@ class LSNPApplication:
             self.message_router.route_message,
             self.user.verbose
         )
+        
+        
+        ts = int(time.time())
+        presence_token = f"{self.user.user_id}|{ts + 3600}|presence"  # 1h session
+        core_state.app_state.set_presence_token(presence_token)
         
         # Initialize services
         self.user_service = UserService(self.network_manager)
@@ -170,6 +176,14 @@ class LSNPApplication:
                     self.logout()   # broadcasts REVOKEs, stops services, exits process
                     break
                 
+                elif choice == "9":
+                    # Debug: Make Expired Token
+                    self._make_expired_token()
+
+                elif choice == "10":
+                    # Debug: Make Mismatched Scope
+                    self._make_mismatched_scope()
+                
                 else:
                     print("That feature is not yet implemented.\n")
             
@@ -215,30 +229,60 @@ class LSNPApplication:
         print("Open Files menu to accept or reject.")
 
     def logout(self) -> None:
-        """Broadcast REVOKE for all still-valid tokens we issued, then stop and exit."""
-        # Stop periodic traffic first so we don’t keep announcing ourselves
+        """Broadcast a single REVOKE to trigger suppression, then stop and exit."""
         if self.ping_service:
             self.ping_service.stop_ping_service()
 
-        # Collect tokens we’ve issued that haven’t expired yet
-        tokens = core_state.app_state.get_revocable_tokens() if hasattr(core_state.app_state, "get_revocable_tokens") else []
-
-        if not tokens and self.user and self.user.verbose:
-            print("[LOGOUT] No active tokens to revoke (or token tracking not enabled).")
-
-        # Broadcast a REVOKE for each token
-        for tok in tokens:
-            fields = {"TYPE": "REVOKE", "TOKEN": tok}
-            msg = build_message(fields)
-            # best-effort: no ACKs for REVOKE per RFC; just broadcast
-            self.network_manager.send_broadcast(msg)
+        # Send one REVOKE (suppression signal)
+        ptoks = core_state.app_state.get_revocable_tokens()
+        if ptoks:
+            for tok in ptoks[:1]:
+                self.network_manager.send_broadcast(
+                    build_message({"TYPE": "REVOKE", "TOKEN": tok})
+                )
+        else:
+            exp = int(time.time()) + 60
+            tok = f"{self.user.user_id}|{exp}|broadcast"
+            self.network_manager.send_broadcast(
+                build_message({"TYPE": "REVOKE", "TOKEN": tok})
+            )
 
         if self.user and self.user.verbose:
-            print(f"[LOGOUT] Sent REVOKE for {len(tokens)} token(s). Exiting...")
+            print("[LOGOUT] Broadcast REVOKE. Exiting...")
 
-        # Stop listener and exit
         self.stop()
         sys.exit(0)
+
+
+    def _send_test_post_with_token(self, token: str, label: str) -> None:
+        """Broadcast a POST using the given token so the router can validate/drop it."""
+        if not self.network_manager or not self.user:
+            return
+        fields = {
+            "TYPE": "POST",
+            "USER_ID": self.user.user_id,
+            "CONTENT": f"[TEST] {label}",
+            "TIMESTAMP": int(time.time()),
+            "TTL": 3600,
+            "MESSAGE_ID": uuid.uuid4().hex[:8],
+            "TOKEN": token,
+        }
+        msg = build_message(fields)
+        self.network_manager.send_broadcast(msg)
+        if self.user.verbose:
+            print(f"[TEST] Sent POST with {label} token → check receiver logs.")
+
+    def _make_expired_token(self) -> None:
+        """Craft a broadcast token that is already expired and send a POST with it."""
+        exp = int(time.time()) - 10  # already in the past
+        token = f"{self.user.user_id}|{exp}|broadcast"
+        self._send_test_post_with_token(token, "EXPIRED")
+
+    def _make_mismatched_scope(self) -> None:
+        """Craft a token with the wrong scope (chat) and send a POST that requires broadcast."""
+        exp = int(time.time()) + 3600
+        token = f"{self.user.user_id}|{exp}|chat"  # wrong scope on purpose
+        self._send_test_post_with_token(token, "MISMATCHED SCOPE (chat vs broadcast)")
 
 
 

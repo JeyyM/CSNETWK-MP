@@ -36,10 +36,40 @@ class ApplicationState:
         self._incoming_file_listeners: List[Callable[[str, dict], None]] = []
         self._pending_acks: Dict[str, threading.Event] = {}
         
+        self._suppressed_peers: Dict[str, float] = {}  # user_id -> suppress_until_ts
+        self._presence_token: Optional[str] = None
         self._revoked_tokens: Dict[str, float] = {}  # token -> expiry_ts
         self._issued_tokens: Set[str] = set()       # tokens we've sent
 
     # Revoking
+    def _sweep_suppressed(self) -> None:
+        now = time.time()
+        expired = [u for u, ts in self._suppressed_peers.items() if ts <= now]
+        for u in expired:
+            self._suppressed_peers.pop(u, None)
+
+    def suppress_peer(self, user_id: str, seconds: int = 60) -> None:
+        """Hide a peer from active lists for N seconds."""
+        with self._lock:
+            self._suppressed_peers[user_id] = time.time() + seconds
+
+    def unsuppress_peer(self, user_id: str) -> None:
+        with self._lock:
+            self._suppressed_peers.pop(user_id, None)
+    
+    def get_active_peers(self, exclude_user_id: Optional[str] = None) -> List[Peer]:
+        """Get all active (recent) peers, excluding suppressed ones."""
+        with self._lock:
+            self._sweep_suppressed()
+            now = time.time()
+            peers = [
+                p for p in self._peers.values()
+                if p.is_active and not (p.user_id in self._suppressed_peers and self._suppressed_peers[p.user_id] > now)
+            ]
+            if exclude_user_id:
+                peers = [p for p in peers if p.user_id != exclude_user_id]
+            return peers
+
     def _sweep_revoked(self) -> None:
         now = time.time()
         to_del = [tok for tok, exp in self._revoked_tokens.items() if exp <= now]
@@ -129,6 +159,20 @@ class ApplicationState:
         """Update IP address for a user."""
         with self._lock:
             self._user_ip_map[user_id] = ip
+    
+    def set_presence_token(self, token: str) -> None:
+        with self._lock:
+            self._presence_token = token
+            self._issued_tokens.add(token)  # so you can revoke it later
+
+    def get_presence_token(self) -> Optional[str]:
+        with self._lock:
+            return self._presence_token
+
+    def remove_peer(self, user_id: str) -> None:
+        with self._lock:
+            self._peers.pop(user_id, None)
+            self._user_ip_map.pop(user_id, None)
     
     # Following management
     def follow_user(self, user_id: str) -> None:

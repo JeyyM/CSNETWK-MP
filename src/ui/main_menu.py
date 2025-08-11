@@ -19,7 +19,9 @@ class MainMenu:
             "Send a File",
             "Play Tic Tac Toe",
             "My Profile",
-            "Exit"
+            "Exit",
+            "Make an Expired Token",
+            "Make a Mismatched Scope Token"
         ]
     
     def show(self) -> Optional[str]:

@@ -56,15 +56,14 @@ class MessageRouter:
     def route_message(self, msg: dict, addr: tuple) -> None:
         message_type = msg.get("TYPE", "")
 
-        # File shortcuts (optional — token check still happens below if mapped)
+        # Token check for FILE_* too (before short-circuit)
         if message_type.startswith("FILE_"):
-            # Enforce token/gating for FILE_* here before forwarding
             if not require_valid_token(msg, addr, self.verbose):
                 return
             handle_file_message(msg, addr)
             return
 
-        # Central token check for all other secured types
+        # Centralized token enforcement for everything else
         if not require_valid_token(msg, addr, self.verbose):
             return
 
@@ -76,9 +75,13 @@ class MessageRouter:
                 print(f"⚠️ Unknown message type: {message_type}")
     
     def _handle_ack(self, msg: dict, addr: tuple) -> None:
-        """Handle ACK messages."""
-        if self.verbose:
-            print(f"✅ ACK received from {addr}")
+        mid = msg.get("MESSAGE_ID")
+        if mid:
+            app_state.resolve_ack(mid)
+            if self.verbose:
+                print(f"[ACK] Received ACK for {mid} from {addr[0]}:{addr[1]}")
+        elif self.verbose:
+            print(f"[ACK] Received ACK without MESSAGE_ID from {addr[0]}:{addr[1]}")
 
     def _handle_revoke(self, msg: dict, addr: tuple) -> None:
         tok = msg.get("TOKEN")
@@ -86,6 +89,16 @@ class MessageRouter:
             if self.verbose:
                 print("[REVOKE] Missing TOKEN")
             return
-        app_state.revoke_token(tok)
+
+        parsed = app_state.parse_token(tok)
+        if not parsed:
+            if self.verbose:
+                print("[REVOKE] Malformed token string in REVOKE")
+            return
+
+        user_id, expiry, scope = parsed
+        app_state.revoke_token(tok)            # normal revocation (used by tokened actions)
+        app_state.suppress_peer(user_id, 60)   # hide from active-peers for ~1 minute
+
         if self.verbose:
-            print("[REVOKE] Recorded revocation.")
+            print(f"[REVOKE] From {user_id} (scope={scope}). Suppressed from active list.")

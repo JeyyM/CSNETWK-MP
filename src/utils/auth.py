@@ -18,11 +18,12 @@ EXPECTED_SCOPE = {
     # NOTE: do not require a token for REVOKE, PING, PROFILE, ACK, FILE_RECEIVED
 }
 
-def require_valid_token(msg: dict, addr: tuple, verbose: bool=False) -> bool:
+def require_valid_token(msg: dict, addr: tuple, verbose: bool = False) -> bool:
+    """Return True if message passes LSNP token checks, else False (with verbose reason)."""
     mtype = msg.get("TYPE", "")
     expected = EXPECTED_SCOPE.get(mtype)
     if not expected:
-        return True  # no token needed for this type
+        return True  # no token required for this type
 
     token = msg.get("TOKEN")
     if not token:
@@ -36,7 +37,7 @@ def require_valid_token(msg: dict, addr: tuple, verbose: bool=False) -> bool:
             print(f"[AUTH] DROP {mtype}: invalid token ({reason})")
         return False
 
-    # Optional IP hardening (match claimed FROM/USER_ID IP with source addr)
+    # Optional IP hardening per RFC Security Considerations
     claimed = msg.get("FROM") or msg.get("USER_ID") or ""
     ip = extract_ip_from_user_id(claimed)
     if ip and ip != addr[0]:
