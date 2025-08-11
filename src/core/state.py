@@ -6,6 +6,7 @@ import time
 
 from ..models.user import Peer, DirectMessage, Post
 from ..models.game import TicTacToeInvite, TicTacToeGame
+from ..models.group import Group, GroupMessage
 
 class ApplicationState:
     """Centralized application state manager."""
@@ -26,9 +27,12 @@ class ApplicationState:
         # Game state
         self._ttt_invites: Dict[tuple, TicTacToeInvite] = {}
         self._ttt_games: Dict[str, TicTacToeGame] = {}
+        
+        # Group state
+        self._groups: Dict[str, Group] = {}
+        self._group_messages: Dict[str, List[GroupMessage]] = {}
 
         # File offer listeners (UI callbacks)
-        # Callback signature: fn(fileid: str, offer: dict)
         self._incoming_file_listeners: List[Callable[[str, dict], None]] = []
         self._pending_acks: Dict[str, threading.Event] = {}
     
@@ -202,6 +206,64 @@ class ApplicationState:
         with self._lock:
             return [game for game in self._ttt_games.values() 
                    if user_id in game.players.values()]
+    
+    # Group management
+    def add_group(self, group: Group) -> None:
+        """Add a group."""
+        with self._lock:
+            self._groups[group.group_id] = group
+            if group.group_id not in self._group_messages:
+                self._group_messages[group.group_id] = []
+    
+    def get_group(self, group_id: str) -> Optional[Group]:
+        """Get a group by ID."""
+        with self._lock:
+            return self._groups.get(group_id)
+    
+    def get_groups_for_user(self, user_id: str) -> List[Group]:
+        """Get all groups that a user is a member of."""
+        with self._lock:
+            return [group for group in self._groups.values() if group.is_member(user_id)]
+    
+    def remove_group(self, group_id: str) -> None:
+        """Remove a group."""
+        with self._lock:
+            self._groups.pop(group_id, None)
+            self._group_messages.pop(group_id, None)
+    
+    def update_group_membership(self, group_id: str, add_members: List[str] = None, remove_members: List[str] = None) -> bool:
+        """Update group membership."""
+        with self._lock:
+            group = self._groups.get(group_id)
+            if not group:
+                return False
+            
+            if add_members:
+                for member in add_members:
+                    group.add_member(member)
+            
+            if remove_members:
+                for member in remove_members:
+                    group.remove_member(member)
+            
+            return True
+    
+    def add_group_message(self, message: GroupMessage) -> None:
+        """Add a group message."""
+        with self._lock:
+            if message.group_id not in self._group_messages:
+                self._group_messages[message.group_id] = []
+            self._group_messages[message.group_id].append(message)
+    
+    def get_group_messages(self, group_id: str) -> List[GroupMessage]:
+        """Get all messages for a group."""
+        with self._lock:
+            return self._group_messages.get(group_id, []).copy()
+    
+    def get_all_groups(self) -> List[Group]:
+        """Get all groups."""
+        with self._lock:
+            return list(self._groups.values())
     
     def mark_ack_pending(self, message_id: str) -> threading.Event:
         """Create/register an Event for this message_id ACK."""

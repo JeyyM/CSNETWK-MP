@@ -10,12 +10,14 @@ from .services.user_service import UserService
 from .services.message_service import MessageService
 from .services.game_service import GameService
 from .services.ping_service import PingService
+from .services.group_service import GroupService
 from .handlers.message_router import MessageRouter
 from .ui.main_menu import MainMenu
 from .ui.peer_menu import PeerMenu
 from .ui.posts_menu import PostsMenu
 from .ui.dm_menu import DirectMessageMenu
 from .ui.game_menu import GameMenu
+from .ui.group_menu import GroupMenu
 from .utils.setup import create_user_profile
 from .services.file_service import FileService
 from .ui.file_menu import FileMenu
@@ -35,6 +37,7 @@ class LSNPApplication:
         self.message_service: Optional[MessageService] = None
         self.game_service: Optional[GameService] = None
         self.ping_service: Optional[PingService] = None
+        self.group_service: Optional[GroupService] = None
         
         # UI Components
         self.main_menu: Optional[MainMenu] = None
@@ -42,6 +45,7 @@ class LSNPApplication:
         self.posts_menu: Optional[PostsMenu] = None
         self.dm_menu: Optional[DirectMessageMenu] = None
         self.game_menu: Optional[GameMenu] = None
+        self.group_menu: Optional[GroupMenu] = None
         
         # Background threads
         self.listener_thread: Optional[threading.Thread] = None
@@ -69,6 +73,7 @@ class LSNPApplication:
         self.message_service = MessageService(self.network_manager)
         self.game_service = GameService(self.network_manager)
         self.ping_service = PingService(self.network_manager)
+        self.group_service = GroupService(self.network_manager)
         
         # Initialize UI components
         self.main_menu = MainMenu(self.user)
@@ -76,6 +81,7 @@ class LSNPApplication:
         self.posts_menu = PostsMenu(self.user, self.message_service)
         self.dm_menu = DirectMessageMenu(self.user, self.message_service, self.user_service)
         self.game_menu = GameMenu(self.user, self.game_service, self.user_service)
+        self.group_menu = GroupMenu(self.user, self.group_service, self.user_service)
 
         # File service + UI
         self.file_service = FileService(self.network_manager, self.user, verbose=self.user.verbose)
@@ -144,7 +150,7 @@ class LSNPApplication:
                     self.dm_menu.show_dm_menu()
                 
                 elif choice == "4":
-                    print("Group messages not yet implemented.\n")
+                    self.group_menu.show_group_menu()
                 
                 elif choice == "5":
                     self.file_menu.show_file_menu()
@@ -181,14 +187,24 @@ class LSNPApplication:
         
         peers = app_state.get_active_peers()
         conversations = self.message_service.get_dm_conversations()
+        groups = self.group_service.get_user_groups(self.user.user_id)
         
         print(f"Profile data stored: {len(peers)} peers")
         print(f"DM conversations: {len(conversations)}")
+        print(f"Groups: {len(groups)}")
         
         for user_id, msg_count in conversations.items():
             peer = app_state.get_peer(user_id)
             display_name = peer.display_name if peer else user_id.split("@")[0]
             print(f"  - {display_name} ({user_id}): {msg_count} messages")
+        
+        if groups:
+            print("\nGroup memberships:")
+            for group in groups:
+                role = "Creator" if group.is_creator(self.user.user_id) else "Member"
+                message_count = len(self.group_service.get_group_messages(group.group_id))
+                print(f"  - {group.group_name} ({role}): {message_count} messages")
+        
         print()
     
     def _on_incoming_offer(self, fileid: str, offer: dict) -> None:
