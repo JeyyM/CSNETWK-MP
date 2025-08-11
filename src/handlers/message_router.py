@@ -1,7 +1,8 @@
 """Message router for handling incoming messages."""
 from typing import Callable, Dict
-import time, uuid
 from ..network.protocol import build_message
+from ..utils.dedupe import seen_before
+from ..utils.auth import require_valid_token
 
 from .ping_handler import PingHandler
 from .profile_handler import ProfileHandler
@@ -14,124 +15,69 @@ from ..network.client import NetworkManager
 from ..handlers.file_handler import handle_file_message
 
 from ..core.state import app_state
-from ..utils.auth import require_valid_token
-
 
 class MessageRouter:
     """Routes incoming messages to appropriate handlers."""
     
     def __init__(self, network_manager: NetworkManager, verbose: bool = False):
+        self.network_manager = network_manager
         self.verbose = verbose
-        self.network_manager = network_manager 
         
         # Initialize handlers
-        self.ping_handler = PingHandler(verbose)
-        self.profile_handler = ProfileHandler(verbose)
-        self.dm_handler = DmHandler(network_manager, verbose)
-        self.post_handler = PostHandler(verbose)
-        self.like_handler = LikeHandler(verbose)
-        self.game_handler = GameHandler(network_manager, verbose)
-        self.group_handler = GroupHandler(network_manager, verbose)
-        
-        # Message type routing table
-        self.handlers: Dict[str, Callable[[dict, tuple], None]] = {
-            "PING": self.ping_handler.handle,
-            "PROFILE": self.profile_handler.handle,
-            "DM": self.dm_handler.handle,
-            "POST": self.post_handler.handle,
-            "LIKE": self.like_handler.handle,
-            "TICTACTOE_INVITE": self.game_handler.handle_invite,
-            "TICTACTOE_MOVE": self.game_handler.handle_move,
-            "TICTACTOE_RESULT": self.game_handler.handle_result,
-            "GROUP_CREATE": self.group_handler.handle_group_create,
-            "GROUP_UPDATE": self.group_handler.handle_group_update,
-            "GROUP_MESSAGE": self.group_handler.handle_group_message,
-            "ACK": self._handle_ack,
-
+        self.handlers = {
+            "PING": PingHandler(verbose=verbose).handle,
+            "PROFILE": ProfileHandler(verbose=verbose).handle,
+            "DM": DmHandler(network_manager, verbose=verbose).handle,
+            "POST": PostHandler(verbose=verbose).handle,
+            "LIKE": LikeHandler(verbose=verbose).handle,
+            "TICTACTOE_INVITE": GameHandler(network_manager, verbose=verbose).handle_invite,
+            "TICTACTOE_MOVE": GameHandler(network_manager, verbose=verbose).handle_move,
+            "TICTACTOE_RESULT": GameHandler(network_manager, verbose=verbose).handle_result,
+            "GROUP_CREATE": GroupHandler(network_manager, verbose=verbose).handle_create,
+            "GROUP_UPDATE": GroupHandler(network_manager, verbose=verbose).handle_update,
+            "GROUP_MESSAGE": GroupHandler(network_manager, verbose=verbose).handle_message,
             "FILE_OFFER": handle_file_message,
-            "FILE_ACCEPT": handle_file_message,
-            "FILE_REJECT": handle_file_message,
             "FILE_CHUNK": handle_file_message,
             "FILE_RECEIVED": handle_file_message,
-            
-            "REVOKE": self._handle_revoke,
         }
     
     def route_message(self, msg: dict, addr: tuple) -> None:
         """Route incoming messages to appropriate handlers."""
         mtype = msg.get("TYPE", "")
-
+        
         # Handle ACKs immediately before any other processing
         if mtype == "ACK":
-            mid = msg.get("MESSAGE_ID", "")
-            if mid:
-                app_state.resolve_ack(mid)
-                if self.verbose:
-                    print(f"✅ ACK received for {mid} from {addr[0]}")
+            self._handle_ack(msg, addr)
             return
-        
-        # Per-RFC auth: validate IP match + token scope/expiry/revocation per TYPE.
-        # (PROFILE, PING, ACK, FILE_RECEIVED, REVOKE are allowed without tokens.)
+
+        # Global message deduplication
+        message_id = msg.get("MESSAGE_ID")
+        if message_id and seen_before(message_id):
+            if self.verbose:
+                print(f"[ROUTER] Dropping duplicate message {message_id}")
+            return
+            
+        # Validate token if required
         if not require_valid_token(msg, addr, self.verbose):
-            # require_valid_token already printed a DROP reason in verbose mode
             return
 
         # Route to appropriate handler
-        handler = self.handlers.get(mtype)
-        if handler:
-            handler(msg, addr)
+        if mtype in self.handlers:
+            try:
+                self.handlers[mtype](msg, addr)
+            except Exception as e:
+                if self.verbose:
+                    print(f"[ROUTER] Error handling {mtype}: {e}")
         elif self.verbose:
             print(f"[ROUTER] Unhandled message type: {mtype}")
 
     def _handle_ack(self, msg: dict, addr: tuple) -> None:
         """Handle incoming ACK messages."""
         mid = msg.get("MESSAGE_ID")
-        if mid:
-            app_state.resolve_ack(mid)
-            if self.verbose:
-                print(f"[ACK] Received ACK for {mid} from {addr[0]}:{addr[1]}")
-        elif self.verbose:
-            print(f"[ACK] Received ACK without MESSAGE_ID from {addr[0]}:{addr[1]}")
-
-    def _handle_revoke(self, msg: dict, addr: tuple) -> None:
-        """Handle token revocation broadcast."""
-        tok = msg.get("TOKEN")
-        if not tok:
-            if self.verbose:
-                print("[REVOKE] Missing TOKEN")
+        if not mid:
             return
-
-        parsed = app_state.parse_token(tok)
-        if not parsed:
-            if self.verbose:
-                print("[REVOKE] Malformed token string in REVOKE")
-            return
-
-        user_id, expiry, scope = parsed
-
-        # Mark token revoked locally and remove peer from active list
-        app_state.revoke_token(tok)
-        app_state.remove_peer(user_id)
-
+            
         if self.verbose:
-            print(f"[REVOKE] From {user_id} (scope={scope}). Removed from active list.")
-
-    # Convenience: used elsewhere when the local user sends a POST
-    def send_post(self, user, content: str, ttl: int = 3600) -> bool:
-        now = int(time.time())
-        exp = now + ttl
-        mid = uuid.uuid4().hex[:8]
-
-        token = f"{user.user_id}|{exp}|broadcast"
-        app_state.register_issued_token(token)  # so logout can REVOKE later
-
-        fields = {
-            "TYPE": "POST",
-            "USER_ID": user.user_id,
-            "CONTENT": content,
-            "TTL": ttl,
-            "MESSAGE_ID": mid,
-            "TOKEN": token,  # scope must be 'broadcast'
-        }
-        msg = build_message(fields)
-        return self.network_manager.send_broadcast(msg)
+            print(f"[ACK] Processing ACK for message {mid} from {addr[0]}")
+            
+        app_state.acknowledge(mid)

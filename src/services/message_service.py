@@ -16,7 +16,7 @@ class MessageService:
         self.network_manager = network_manager
 
     def create_post(self, content: str, user: User) -> bool:
-        import time, uuid
+        """Create and broadcast a post."""
         message_id = uuid.uuid4().hex[:8]
         timestamp = int(time.time())
         ttl = 3600
@@ -32,9 +32,11 @@ class MessageService:
             "TOKEN": token,
         }
         post_msg = build_message(fields)
+        
+        # Only broadcast, don't send unicast
         self.network_manager.send_broadcast(post_msg)
 
-        # <-- add this so the author immediately sees their own post
+        # Add locally after sending
         app_state.add_post(
             Post(
                 user_id=user.user_id,
@@ -48,7 +50,7 @@ class MessageService:
         )
         return True
 
-    
+
     def like_post(self, post: Post, user: User, is_like: bool = True) -> bool:
         """Like or unlike a post."""
         action = "LIKE" if is_like else "UNLIKE"
@@ -99,12 +101,10 @@ class MessageService:
         }
         dm_msg = build_message(fields)
 
-        self.network_manager.send_broadcast(dm_msg)
-
+        # Only use unicast for DMs, don't broadcast
         success = self.network_manager.send_unicast(dm_msg, to_user_id)
         
         if success:
-            # Add to local history
             dm = DirectMessage(
                 from_user=user.user_id,
                 to_user=to_user_id,
@@ -113,8 +113,7 @@ class MessageService:
                 message_id=message_id,
                 display_name=user.display_name
             )
-            # Note: For outgoing messages, we store them under the recipient's ID
-            # This is handled in the UI layer for proper display
+            app_state.add_dm(dm)
         
         return success
     

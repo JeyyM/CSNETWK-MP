@@ -2,7 +2,7 @@
 from ..models.user import DirectMessage, Peer
 from ..network.client import NetworkManager
 from ..core.state import app_state
-
+from ..utils.dedupe import seen_before
 
 class DmHandler:
     """Handles DM messages."""
@@ -13,10 +13,16 @@ class DmHandler:
     
     def handle(self, msg: dict, addr: tuple) -> None:
         """Handle a DM message."""
+        # Add message deduplication
+        message_id = msg.get("MESSAGE_ID")
+        if message_id and seen_before(message_id):
+            if self.verbose:
+                print(f"[DM] Dropping duplicate message {message_id}")
+            return
+
         from_user = msg.get("FROM")
         to_user = msg.get("TO")
         content = msg.get("CONTENT", "")
-        message_id = msg.get("MESSAGE_ID")
         timestamp = float(msg.get("TIMESTAMP", 0))
         
         if self.verbose:
