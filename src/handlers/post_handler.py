@@ -1,53 +1,59 @@
 """Handler for POST messages."""
 import time
 
-from ..models.user import Post, Peer
+from ..models.user import Post
 from ..core.state import app_state
-from ..utils.dedupe import seen_before  # <-- add this
-from ..network.protocol import build_message
+from ..utils.dedupe import seen_before
+
 
 class PostHandler:
     """Handles POST messages."""
-    
+
     def __init__(self, verbose: bool = False):
         self.verbose = verbose
-        
-    # post_handler.py
+
     def handle(self, msg: dict, addr: tuple) -> None:
-        # Dedupe
-        mid = msg.get("MESSAGE_ID")
+        # Dedupe on MESSAGE_ID (safe even if None)
+        mid = msg.get("MESSAGE_ID", "")
         if seen_before(mid):
             return
 
-        # Parse fields (POST uses USER_ID, not FROM)
-        user_id = msg.get("USER_ID", "")
+        # Per spec, POST uses USER_ID (not FROM); no TIMESTAMP field is expected.
+        user_id = msg.get("USER_ID", "").strip()
         content = msg.get("CONTENT", "")
-        try:
-            ts = int(msg.get("TIMESTAMP", str(int(time.time()))))
-        except Exception:
-            ts = int(time.time())
+
+        # Basic sanity
+        if not user_id or not content:
+            if self.verbose:
+                print("[POST] DROP malformed POST (missing USER_ID or CONTENT)")
+            return
+
+        # TTL present on POST; default 3600
         try:
             ttl = int(msg.get("TTL", "3600"))
         except Exception:
             ttl = 3600
 
-        # TTL drop (optional but helpful)
+        # Stamp locally (receiver time)
+        ts = int(time.time())
+
+        # Optional TTL drop at receive time (usually won't drop immediately)
         if ts + ttl < int(time.time()):
             if self.verbose:
                 print(f"[POST] DROP expired POST (mid={mid}) from {user_id}")
             return
 
-        # Resolve display name from peer table if known
+        # Resolve display name if we know this peer
         peer = app_state.get_peer(user_id)
         display_name = peer.display_name if peer else (user_id.split("@")[0] or user_id)
 
-        # Persist to feed (followers filter happens when reading)
+        # Persist; follower filtering happens when reading from state (get_posts)
         app_state.add_post(Post(
             user_id=user_id,
             display_name=display_name,
             content=content,
-            timestamp=ts,
-            message_id=mid or "",
+            timestamp=ts,      # local arrival time
+            message_id=mid,
             likes=set(),
             ttl=ttl,
         ))

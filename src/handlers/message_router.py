@@ -1,5 +1,7 @@
 """Message router for handling incoming messages."""
 from typing import Callable, Dict
+import time, uuid
+from ..network.protocol import build_message
 
 from .ping_handler import PingHandler
 from .profile_handler import ProfileHandler
@@ -126,3 +128,22 @@ class MessageRouter:
 
         if self.verbose:
             print(f"[REVOKE] From {user_id} (scope={scope}). Removed from active list.")
+
+    def send_post(self, user, content: str, ttl: int = 3600) -> bool:
+        now = int(time.time())
+        exp = now + ttl
+        mid = uuid.uuid4().hex[:8]
+
+        token = f"{user.user_id}|{exp}|broadcast"
+        app_state.register_issued_token(token)  # so logout can REVOKE later
+
+        fields = {
+            "TYPE": "POST",
+            "USER_ID": user.user_id,
+            "CONTENT": content,
+            "TTL": ttl,
+            "MESSAGE_ID": mid,
+            "TOKEN": token,              # scope must be 'broadcast'
+        }
+        msg = build_message(fields)
+        return self.network_manager.send_broadcast(msg)
