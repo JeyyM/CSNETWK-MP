@@ -63,4 +63,11 @@ class PostHandler:
         ))
 
         if self.verbose:
-            print(f"RECV< POST by {display_name}: {content}")
+            # Print POST message in detailed format
+            print(
+                f"TYPE: POST USER_ID: {user_id} \n"
+                f"CONTENT: {content} \n"
+                f"TTL: {ttl} \n"
+                f"MESSAGE_ID: {mid} \n"
+                f"TOKEN: {msg.get('TOKEN', '')}"
+            )

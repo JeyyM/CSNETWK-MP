@@ -77,9 +77,6 @@ class NetworkManager:
         try:
             self._auto_register_token(message)
             sock.sendto(message.encode("utf-8"), (ip, PORT))
-            if self.verbose:
-                print("\n\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n\n" + message + "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n")
-                print(f"[DEBUG] Sent message to {user_id} at {ip}")
             return True
         except Exception as e:
             print(f"Failed to send to {user_id} ({ip}): {e}")

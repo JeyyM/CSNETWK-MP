@@ -19,8 +19,9 @@ class DmHandler:
         message_id = msg.get("MESSAGE_ID")
         timestamp = float(msg.get("TIMESTAMP", 0))
         
-        if self.verbose:
-            print(f"[DEBUG] DM parsed - From: '{from_user}', To: '{to_user}', Content: '{content}'")
+        # Remove DM debug print
+        # if self.verbose:
+        #     print(f"[DEBUG] DM parsed - From: '{from_user}', To: '{to_user}', Content: '{content}'")
 
         if not from_user or not content:
             if self.verbose:

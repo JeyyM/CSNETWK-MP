@@ -58,8 +58,8 @@ class UDPListener:
 
                 if self.verbose:
                     t = time.strftime("%H:%M:%S")
-                    # Only show verbose for non-PING and non-PROFILE messages
-                    if msg.get('TYPE', '?') not in ('PING', 'PROFILE'):
+                    # Only show verbose for non-PING, non-PROFILE, non-POST, non-DM messages
+                    if msg.get('TYPE', '?') not in ('PING', 'PROFILE', 'POST', 'DM'):
                         print(f"\nRECV< {t} {addr[0]}:{addr[1]} TYPE={msg.get('TYPE','?')}")
 
                 # Route message to appropriate handler
