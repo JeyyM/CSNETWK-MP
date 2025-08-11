@@ -61,7 +61,7 @@ class MessageService:
             "TYPE": "LIKE",
             "FROM": user.user_id,
             "TO": post.user_id,
-            "POST_TIMESTAMP": int(post.timestamp),
+            "POST_ID": post.message_id,  # Use MESSAGE_ID for unique post identification
             "ACTION": action,
             "TIMESTAMP": timestamp,
             "MESSAGE_ID": message_id,
@@ -137,4 +137,3 @@ class MessageService:
     def get_active_dm_user(self) -> Optional[str]:
         """Get the active DM user."""
         return app_state.get_active_dm_user()
-#
